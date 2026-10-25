@@ -5,6 +5,7 @@ import { generateRestoration } from '../src/restoration-geometry.ts';
 import { createFitIntersectionQuery } from '../src/restoration-fit-intersections.ts';
 import { MAX_VERIFIED_TARGET_FACES } from '../src/restoration-fit-verification.ts';
 import { restorationRelationshipsSchema } from '../src/restoration-relationships-schema.ts';
+import { projectRestorationRelationships } from '../src/restoration-assistant.ts';
 
 const spec = () => ({ version: 'implant-assembly/v1', fdi: 36, parentPartId: 'synthetic',
   frame: { origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], up: [0, 0, 1] },
@@ -264,6 +265,9 @@ test('Float32-rounded platform caps stay touching and crown enclosure stays expl
       }
       const report = await measure({ spec: value, components: generateRestoration(value), surfaces: [],
         options: { samplesPerRelationship: 8, maxDurationMs: 10_000 } });
+      assert.equal(restorationRelationshipsSchema.safeParse(report).success, true,
+        `Rotated interface offsets and gaps must remain consistent at scale ${scale}, origin ${frame.origin}.`);
+      assert.doesNotThrow(() => projectRestorationRelationships(report), 'Review data must accept the measured interface report.');
       const rows = report.relationships.slice(0, 1);
       assert.equal(report.interfaces[1].status, 'measured');
       close(report.interfaces[1].signedAxialGap / scale, -(value.parameters.abutment.height + value.parameters.abutment.emergenceRadius * .5) / scale, 1e-4);

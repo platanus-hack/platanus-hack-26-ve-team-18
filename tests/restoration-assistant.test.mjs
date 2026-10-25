@@ -4,6 +4,7 @@ import { generateRestoration } from '../src/restoration-geometry.ts';
 import { evaluateRestorationQuality } from '../src/restoration-quality.ts';
 import { applyRestorationEdit, restorationEditRevision } from '../src/restoration-edit.ts';
 import { applyAssistantRestorationEdit, buildRestorationAssistantSnapshot, createRestorationAssistantTools, restorationAssistantSnapshotSchema } from '../src/restoration-assistant.ts';
+import { measureRestorationRelationships } from '../src/restoration-relationships.ts';
 
 function assembly() {
   const spec = { version: 'implant-assembly/v1', fdi: 36, parentPartId: 'PRIVATE_SOURCE_ID', source: 'PRIVATE_SOURCE_FILENAME.ply',
@@ -20,6 +21,20 @@ function make(spec) {
       restoration: { assemblyId: 'PRIVATE_ASSEMBLY_ID', component: mesh.component, parentPartId: spec.parentPartId } })) };
 }
 const action = snapshot => ({ assemblyId: 'restoration-1', expectedRevision: snapshot.assemblies[0].editRevision, edit: { reason: 'Review generic crown width against measured bounds.', parameters: { crown: { width: 4.2 } } } });
+
+test('a rotated generated draft with near-zero interface offsets builds its render-time review snapshot', async () => {
+  const spec = assembly().spec;
+  spec.frame = { origin: [22.4, -3.7, 5.9], u: [2/3, 2/3, -1/3], v: [-1/3, 2/3, 2/3], up: [2/3, -1/3, 2/3] };
+  const original = make(spec);
+  original.fit.relationships = await measureRestorationRelationships({ spec, components: generateRestoration(spec), surfaces: [],
+    options: { samplesPerRelationship: 8, maxDurationMs: 10_000 } }, { yieldControl: async () => {} });
+  const snapshot = buildRestorationAssistantSnapshot([original]);
+  const platform = snapshot.assemblies[0].relationships.interfaces[0];
+  assert.equal(platform.status, 'measured');
+  assert.ok(Math.abs(platform.sourceAxialOffset) < 1e-5);
+  assert.ok(Math.abs(platform.targetAxialOffset) < 1e-5);
+  assert.equal(restorationAssistantSnapshotSchema.safeParse(snapshot).success, true);
+});
 
 test('anonymous restoration inventory preserves actual extents, independent guardrails and unknown clinical evidence', () => {
   const original = assembly(), snapshot = buildRestorationAssistantSnapshot([original]);

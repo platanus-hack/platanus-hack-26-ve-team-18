@@ -328,12 +328,15 @@ export async function measureRestorationRelationships(input: RestorationRelation
       const source = await prepare(components.get(item.source)?.positions), target = await prepare(components.get(item.target)?.positions);
       if (typeof source === 'string' || typeof target === 'string') { item.reason = typeof source === 'string' ? `source:${source}` : `target:${target}`; continue; }
       if (!source.nondegenerate || !target.nondegenerate) { item.reason = 'no-nondegenerate-interface-geometry'; continue; }
-      const nominal = new Vector3(...item.nominalOrigin), axial = nominal.clone().sub(origin).dot(up);
+      const nominal = new Vector3(...item.nominalOrigin), nominalProjection = nominal.dot(up);
       const sourceDistance = await distanceTo(source, nominal), targetDistance = await distanceTo(target, nominal);
       // Actual separation cannot be obtained by subtracting offsets which may
       // already have lost all local detail against a distant nominal datum.
       const gap = target.minProjection - source.maxProjection;
-      const sourceOffset = source.maxAxial - axial, targetOffset = target.minAxial - axial;
+      // Use the gap's projected extrema and one shared datum for both offsets.
+      // Separately projecting origin-relative vertices adds roundoff that makes
+      // near-zero platform offsets disagree with the independently measured gap.
+      const sourceOffset = source.maxProjection - nominalProjection, targetOffset = target.minProjection - nominalProjection;
       const resolution = Math.max(source.maxProjection - source.minProjection, target.maxProjection - target.minProjection,
         Math.abs(gap), projectionTolerance(source, target));
       const datumError = Math.max(...item.nominalOrigin.map(Math.abs), ...input.spec.frame.origin.map(Math.abs),
