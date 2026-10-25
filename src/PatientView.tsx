@@ -38,21 +38,26 @@ export function toothNameEs(code: number): string {
   return `${names[pos - 1]} ${arch} ${side}`;
 }
 
+const THETA = 0.165;
+const COS_T = Math.cos(THETA);
+const SIN_T = Math.sin(THETA);
+
 const DEMO_SPEC: RestorationSpec = {
   version: 'implant-assembly/v1',
   fdi: 21,
   parentPartId: 'upper',
   anatomy: 'incisor',
   frame: {
-    origin: [3.8, 25.5, 5.0] as Vec3,
+    origin: [2.5, -21.5, 7.8] as Vec3,
     u: [1, 0, 0] as Vec3,
-    v: [0, 0.96, -0.28] as Vec3,
-    up: [0, 0.28, 0.96] as Vec3,
+    v: [0, -COS_T, SIN_T] as Vec3,
+    up: [0, -SIN_T, -COS_T] as Vec3,
   },
+  anatomicalSigns: { mesial: -1, buccal: 1 },
   parameters: {
     fixture: { radius: 1.9, length: 11.5, depth: 1.5, taper: 0.15 },
-    abutment: { radius: 1.7, height: 2.5, emergenceRadius: 2.1, angleX: 0, angleY: 0 },
-    crown: { width: 8.5, depth: 7.2, height: 10.0, cuspHeight: 1.2, rotation: 0 },
+    abutment: { radius: 1.7, height: 1.6, emergenceRadius: 2.0, angleX: 0, angleY: 0 },
+    crown: { width: 8.0, depth: 6.8, height: 8.0, cuspHeight: 0.5, rotation: 0 },
   },
   provenance: 'clinician-entered',
   units: 'file units (u)',
@@ -87,7 +92,9 @@ export function PatientView({
     ? 'Evaluación y planificación para rehabilitación de pieza dental en sector anterosuperior (diente FDI 21). El reborde alveolar presenta adecuada disponibilidad ósea en el estudio tomográfico CBCT. Se planificó la colocación de un implante cónico de titanio biocompatible con carga diferida y la posterior confección de una corona estética de circonio anatómico con perfil de emergencia natural.'
     : 'Planificación de tratamiento dental y rehabilitación personalizada.';
 
-  // In demo mode, load full upper and lower arches
+  const [internalSelectedFdi, setInternalSelectedFdi] = useState<number | null>(selectedFdi ?? 21);
+
+  // In demo mode, load full upper and lower arches with realistic UV textures
   useEffect(() => {
     if (!isDemoMode) return;
     let cancelled = false;
@@ -97,9 +104,15 @@ export function PatientView({
       fetch('/patient-demo/upper.ply')
         .then(r => r.blob())
         .then(b => new File([b], 'upper.ply', { type: 'application/octet-stream' })),
+      fetch('/patient-demo/upper.jpg')
+        .then(r => r.blob())
+        .then(b => new File([b], 'upper.jpg', { type: 'image/jpeg' })),
       fetch('/patient-demo/lower.ply')
         .then(r => r.blob())
         .then(b => new File([b], 'lower.ply', { type: 'application/octet-stream' })),
+      fetch('/patient-demo/lower.jpg')
+        .then(r => r.blob())
+        .then(b => new File([b], 'lower.jpg', { type: 'image/jpeg' })),
     ])
       .then(files => importModels(files))
       .then(res => {
@@ -176,7 +189,16 @@ export function PatientView({
   }, [isDemoMode, toothData.teeth]);
 
   // Default to FDI 21 or selected
-  const activeFdi = selectedFdi && selectedFdi >= 11 && selectedFdi <= 48 ? selectedFdi : 21;
+  const activeFdi = (selectedFdi && selectedFdi >= 11 && selectedFdi <= 48)
+    ? selectedFdi
+    : (internalSelectedFdi && internalSelectedFdi >= 11 && internalSelectedFdi <= 48)
+    ? internalSelectedFdi
+    : 21;
+
+  const handleSelectTooth = (fdi: number | null) => {
+    setInternalSelectedFdi(fdi);
+    if (fdi !== null) onSelectTooth?.(fdi);
+  };
 
   // Selected tooth properties
   const isSelectedPlanned = activeFdi === 21 || effectiveTeeth[activeFdi]?.restoration === 'implant';
@@ -269,15 +291,15 @@ export function PatientView({
           </h2>
           <div className="patient-photos">
             <figure>
-              <img src="/patient-demo/frontal.jpg" alt="Fotografía clínica frontal de tu boca" />
+              <img src="/patient-demo/photo-frontal.jpg" alt="Fotografía clínica frontal de tu boca" />
               <figcaption>Vista Frontal</figcaption>
             </figure>
             <figure>
-              <img src="/patient-demo/upper.jpg" alt="Fotografía oclusal de tu arcada superior" />
+              <img src="/patient-demo/photo-upper.jpg" alt="Fotografía oclusal de tu arcada superior" />
               <figcaption>Arcada Superior</figcaption>
             </figure>
             <figure>
-              <img src="/patient-demo/lower.jpg" alt="Fotografía oclusal de tu arcada inferior" />
+              <img src="/patient-demo/photo-lower.jpg" alt="Fotografía oclusal de tu arcada inferior" />
               <figcaption>Arcada Inferior</figcaption>
             </figure>
           </div>
@@ -293,7 +315,7 @@ export function PatientView({
             teeth={effectiveTeeth}
             assemblies={assemblies}
             selectedFdi={activeFdi}
-            onSelectFdi={onSelectTooth}
+            onSelectFdi={handleSelectTooth}
           />
           <div className="tooth-detail">
             <strong>
