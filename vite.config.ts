@@ -19,5 +19,10 @@ export default defineConfig(({ mode }) => {
     configureServer(server) { server.middlewares.use(planning); server.middlewares.use(teeth); server.middlewares.use(middleware); },
     configurePreviewServer(server) { server.middlewares.use(planning); server.middlewares.use(teeth); server.middlewares.use(middleware); },
   };
-  return { plugins: [react(), tailwindcss(), assistant] };
+  return {
+    preview: {
+      allowedHosts: true,
+    },
+    plugins: [react(), tailwindcss(), assistant]
+  };
 });
