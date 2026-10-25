@@ -18,7 +18,7 @@
 .tooth-panel .tooth-slot { position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; min-height: 60px; padding: 4px 1px; background: #f7f9fc; border-color: #d9e1eb; color: #64758a; border-radius: 6px; line-height: 1.1; }
 .tooth-slot-number { color: #34475d; font-weight: 650; font-variant-numeric: tabular-nums; }
 .tooth-slot-mark { display: grid; place-items: center; width: 19px; height: 21px; border: 1px dashed #b0bece; border-radius: 5px 5px 8px 8px; font-size: 11px; font-weight: 650; }
-.tooth-slot-count { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tooth-slot-count { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 8px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tooth-panel .tooth-slot--present .tooth-slot-mark { background: #e7eff9; border: 1px solid #93afd0; color: #42658c; }
 .tooth-panel .tooth-slot--missing { background: #fcf5eb; border-color: #e6cfac; }
 .tooth-slot--missing .tooth-slot-mark { border: 1px solid #cfa665; color: #926622; background: #fffaf1; font-size: 17px; }

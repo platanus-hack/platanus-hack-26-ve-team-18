@@ -5,8 +5,11 @@ import { inferScanRole, partMatrix, roleLabels } from './pose';
 import type { ModelPart, ScanRole, Vec3 } from './models';
 import type { CollisionReport } from './collision';
 import { prepareCollisionParts } from './collision-input';
-import { Viewport } from './Viewport';
-import type { Probe, ViewerCapture } from './viewer';
+import { Viewport, type ViewerActions } from './Viewport';
+import type { NavigationMode, Probe, ViewerCapture } from './viewer';
+import { ViewerDock } from './ViewerDock';
+import { withArchSeparation } from './aperture';
+import { useDebouncedValue } from './useDebouncedValue';
 import { useTomography } from './useTomography';
 import { TomographyPanel } from './TomographyPanel';
 import type { TomographyViewSpec } from './tomography-types';
@@ -14,6 +17,8 @@ import { registerCbctLandmarks, currentCbctRegistrations, tomographyReferencePar
 import type { CbctAutoAlignmentResult } from './cbct-auto-alignment';
 import { useCbctAlignment } from './useCbctAlignment';
 import { CbctOverlayControls } from './CbctOverlayControls';
+import { cbctPipelineStage } from './cbct-pipeline';
+import { CbctPipelineToast } from './CbctPipelineToast';
 import { useTomographyAssistantSource } from './useTomographyAssistantSource';
 import type { AssistantTomographySource } from './tomography-evidence';
 import type { BiteAlignmentArchResult, BiteAlignmentResponse } from './bite-alignment';
@@ -47,14 +52,23 @@ import { useDraftReview } from './useDraftReview';
 import { mappingDisplayIdentity, type ToothDisplayIdentity } from './tooth-display';
 import { applyAIRegionReviews } from './planning-regions';
 import { applySiteDecisions, projectPlanningAssessment } from './planning-projection';
+import { PatientView } from './PatientView';
 
 const count = (value: number) => value.toLocaleString();
 const number = (value: number) => Number.isFinite(value) ? new Intl.NumberFormat('en', { maximumFractionDigits: 4 }).format(value) : '—';
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const DEFAULT_SCAN_SCALE = 1;
 const DEFAULT_SCALE_PROVENANCE = 'Default scan scale: 1 mm per file unit (editable).';
+/** How long a slider must be still before the 3D scene applies its value. */
+const SLIDER_SETTLE_MS = 100;
 
-function Glyph({ kind }: { kind: 'add' | 'file' | 'download' | 'close' }) {
+function Glyph({ kind }: { kind: 'add' | 'file' | 'download' | 'close' | 'sun' | 'moon' }) {
+  if (kind === 'sun') {
+    return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></svg>;
+  }
+  if (kind === 'moon') {
+    return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></svg>;
+  }
   return <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">{kind === 'add' ? <path d="M10 3v14M3 10h14" /> : kind === 'close' ? <path d="m5 5 10 10M15 5 5 15" /> : kind === 'download' ? <path d="M10 2v11m-4-4 4 4 4-4M3 14v3h14v-3" /> : <><path d="M5 2h7l4 4v12H5V2Z" /><path d="M12 2v5h4M8 11h5M8 14h5" /></>}</svg>;
 }
 
@@ -71,6 +85,8 @@ export function App() {
   const [referenceOpacity, setReferenceOpacity] = useState(.4);
   const capture3d = useRef<(() => ViewerCapture) | null>(null);
   const captureReady = useCallback((capture: (() => ViewerCapture) | null) => { capture3d.current = capture; }, []);
+  const viewerActions = useRef<ViewerActions | null>(null);
+  const viewerActionsReady = useCallback((actions: ViewerActions | null) => { viewerActions.current = actions; }, []);
   const tomographyPanel = useRef<HTMLDivElement>(null);
   const tomographyFiles = useRef<{ files: File[]; allowIncompletePreview: boolean } | null>(null);
   const tomographyAiRef = useRef<AssistantTomographySource | undefined>(undefined);
@@ -109,6 +125,34 @@ export function App() {
   }, []);
   const [assessmentHistory, setAssessmentHistory] = useState<CasePlanningResult[]>([]);
   const [biteReviewed, setBiteReviewed] = useState(false);
+  const [viewMode, setViewMode] = useState<'clinical' | 'patient'>(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.hash === '#patient') return 'patient';
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view') === 'patient') return 'patient';
+    }
+    return 'clinical';
+  });
+  useEffect(() => {
+    const onHash = () => setViewMode(window.location.hash === '#patient' ? 'patient' : 'clinical');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ceflow-theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+    }
+    return 'light';
+  });
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('ceflow-theme', theme);
+    }
+  }, [theme]);
+  const toggleTheme = () => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   const workflowToken = useRef(0);
   const workflowDeadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const timedPreparation = useRef('');
@@ -143,8 +187,18 @@ export function App() {
   const [run, setRun] = useState(0);
   const [heatmap, setHeatmap] = useState(true);
   const [wireframe, setWireframe] = useState(false);
+  const [upAxis, setUpAxis] = useState<'y' | 'z'>('z');
+  const [aperture, setAperture] = useState(0);
+  const sceneAperture = useDebouncedValue(aperture, SLIDER_SETTLE_MS);
+  const [navigationMode, setNavigationMode] = useState<NavigationMode>('orbit');
+  const [showAnnotations, setShowAnnotations] = useState(true);
+  const [viewerExpanded, setViewerExpanded] = useState(false);
   // Presentation stays independent of the geometry used by collision workers.
   const [opacities, setOpacities] = useState<Record<string, number>>({});
+  // Sliders stay live in the UI; the 3D scene applies their values only after
+  // the slider has been still for SLIDER_SETTLE_MS, so dragging never re-runs
+  // viewer transforms/materials mid-gesture.
+  const viewerOpacities = useDebouncedValue(opacities, SLIDER_SETTLE_MS);
   const [dragging, setDragging] = useState(false);
   const [aligning, setAligning] = useState(false);
   const [matchDistance, setMatchDistance] = useState(2);
@@ -164,7 +218,7 @@ export function App() {
   const analysisState: 'ready' | 'running' | 'paused' | 'unavailable' = importing || aligning || busy ? 'running' : paused ? 'paused' : report ? 'ready' : 'unavailable';
   const planning = useCasePlanning(parts, { parts, selected, selectedFdi: tooth.selectedTooth, probe, report, tolerance, analysisState, teeth: tooth.data.teeth, counts: tooth.counts, fitSummary, fitRadius }, importing || aligning, tooth.data.labels, tooth.data.reviewedMask, { identityDecisions, identityRegions, biteReviewed, confidenceThreshold,
     measurementContext: { mmPerUnit, scaleStatus: mmPerUnit !== null && unitsProvenance.startsWith('Recorded calibration: ') ? 'clinician-entered' : 'unconfirmed', scaleSource: unitsProvenance.startsWith('Recorded calibration: ') ? 'Calibration explicitly recorded in the local case.' : 'Editable scan scale; independent calibration is unconfirmed.', biteReviewed,
-      ...(rulerEvidence && rulerEvidence.partIds.every(id => parts.some(part => part.id === id && (part.role === 'upper' || part.role === 'lower'))) ? {
+      ...(aperture === 0 && sceneAperture === 0 && rulerEvidence && rulerEvidence.partIds.every(id => parts.some(part => part.id === id && (part.role === 'upper' || part.role === 'lower'))) ? {
         ruler: { distance: rulerEvidence.distance, units: 'file units (u)', sourceIds: [...new Set(rulerEvidence.partIds.map(id => `scan-${parts.findIndex(part => part.id === id) + 1}`))], method: 'picked-point-straight-line' },
       } : {}) },
     tomography: { source: tomographyAiRef, sharing: sharePlanningTomography } });
@@ -186,16 +240,33 @@ export function App() {
   const assemblyRegistration = useMemo(() => currentSceneAlignment ? { partIds: currentSceneAlignment.after.filter(part => part.role !== 'bite').map(part => part.id), reviewed: currentSceneAlignment.reviewed, rmsMm: currentSceneAlignment.result.rmsMm } : undefined, [currentSceneAlignment]);
   const referenceShown = referenceVisible && (!allParts.length || !!mmPerUnit);
   const referenceParts = useMemo(() => tomography.surface ? [tomographyReferencePart(tomography.surface, mmPerUnit, referenceShown)] : [], [tomography.surface, mmPerUnit, referenceShown]);
-  const viewportParts = allParts;
+  // Presentation-only bite opening: the view shows the arches separated while
+  // collision evidence keeps using the true `allParts` geometry. The scene
+  // applies the slider value debounced (see useDebouncedValue).
+  const viewportParts = useMemo(() => withArchSeparation(allParts, sceneAperture, upAxis), [allParts, sceneAperture, upAxis]);
   const cbctAlignmentDisabled = importing || aligning || restorations.busy || assessing || workflowRuns.at(-1)?.status === 'running';
   const biteSourceKey = (['upper', 'lower', 'bite'] as const).flatMap(role => parts.filter(part => part.role === role)).map(part => `${part.id}:${part.triangles}`).join('|');
   const waitingForBite = !cbctRegistrations.length && canRefineCaseBite(parts) && (alignedSources.current !== biteSourceKey || aligning);
   const cbctAlignment = useCbctAlignment({ parts, volume: tomography.volume, mmPerUnit, automatic: !waitingForBite && cbctReadyScale === mmPerUnit, disabled: cbctAlignmentDisabled, onAligned: applyAutomaticCbctAlignment });
+  const [cbctPipelineArmed, setCbctPipelineArmed] = useState(false);
+  const cbctPipeline = useMemo(() => cbctPipelineStage({
+    loading: tomography.loading, status: tomography.status, progress: tomography.progress, error: tomography.error,
+    volume: tomography.volume, surface: tomography.surface, surfaceBusy: tomography.surfaceBusy,
+    alignBusy: cbctAlignment.busy, alignError: cbctAlignment.error,
+    biteAligning: aligning, waitingForBite, scaleKnown: mmPerUnit !== null,
+    hasScans: parts.some(part => part.role !== 'bite'), aligned: !!currentSceneAlignment,
+  }), [tomography.loading, tomography.status, tomography.progress, tomography.error, tomography.volume, tomography.surface, tomography.surfaceBusy, cbctAlignment.busy, cbctAlignment.error, aligning, waitingForBite, mmPerUnit, parts, currentSceneAlignment]);
+  // Let the user see the completed stepper briefly, then free the corner of the screen.
+  useEffect(() => {
+    if (cbctPipeline?.stage !== 'done') return;
+    const timer = setTimeout(() => setCbctPipelineArmed(false), 4000);
+    return () => clearTimeout(timer);
+  }, [cbctPipeline]);
   const autoTeeth = useAutoTeeth(parts, selected, importing || aligning || tooth.busy);
   useEffect(() => { autoTeeth.setAutoRun(false); }, []);
   const readyMappings = autoTeeth.proposal?.mappings.filter(mapping => mapping.fdi !== null && !mapping.needsReview) ?? [];
   const opacityFor = (part: ModelPart) => presentationOpacity(part, opacities);
-  const sceneOpacities = useMemo(() => ({ ...Object.fromEntries(allParts.map(part => [part.id, presentationOpacity(part, opacities)])), ...Object.fromEntries(referenceParts.map(part => [part.id, referenceOpacity])) }), [allParts, opacities, referenceParts, referenceOpacity]);
+  const sceneOpacities = useMemo(() => ({ ...Object.fromEntries(allParts.map(part => [part.id, presentationOpacity(part, viewerOpacities)])), ...Object.fromEntries(referenceParts.map(part => [part.id, referenceOpacity])) }), [allParts, viewerOpacities, referenceParts, referenceOpacity]);
   const captureParts = useMemo(() => [...viewportParts, ...referenceParts].filter(part => part.visible && (sceneOpacities[part.id] ?? 1) > 0), [viewportParts, referenceParts, sceneOpacities]);
   const tomographySource = useTomographyAssistantSource({ volume: tomography.volume, surface: tomography.surface, parts: allParts, sceneParts: captureParts, registrations: overlayRegistrations, mmPerUnit, views: tomographyViews, capture3d, sceneRevision: JSON.stringify([sceneOpacities, heatmap, wireframe, step, tooth.selectedTooth, tooth.isolate]) });
   tomographyAiRef.current = tomographySource;
@@ -204,6 +275,7 @@ export function App() {
   const compared = visible.filter(part => part.role !== 'bite');
   const upper = parts.filter(part => part.role === 'upper');
   const lower = parts.filter(part => part.role === 'lower');
+  const hasArch = allParts.some(part => part.role === 'upper' || part.role === 'lower');
   const bites = parts.filter(part => part.role === 'bite');
   const canAlign = canRefineCaseBite(parts);
   const activeAnalysis = report?.parts.find(part => part.id === selected);
@@ -405,7 +477,7 @@ export function App() {
       setSceneAlignment(null);
       setMmPerUnit(DEFAULT_SCAN_SCALE); setUnitsProvenance(DEFAULT_SCALE_PROVENANCE); timedPreparation.current = ''; reviewStarted.current = 0; clearTimeout(workflowDeadline.current); workflowToken.current++;
       matchDistanceEdited.current = false; alignedSources.current = '';
-      setMatchDistance(2); setStep(0); setAcceptedActions([]); setOpacities({}); setWarnings([]); setIdentityDecisions({}); setIdentityRegions({}); setArchivedDraftDecisions([]); setSiteDecisions({}); setFocusedSiteId(null); setAssessmentHistory([]); setWorkflowRuns([]); setCorrectionEvents([]); setTimings([]); setProgress({ stage: 'Waiting for scans', completed: 0, total: 5 });
+      setMatchDistance(2); setStep(0); setAcceptedActions([]); setOpacities({}); setWarnings([]); setIdentityDecisions({}); setIdentityRegions({}); setArchivedDraftDecisions([]); setSiteDecisions({}); setFocusedSiteId(null); setAssessmentHistory([]); setWorkflowRuns([]); setCorrectionEvents([]); setTimings([]); setProgress({ stage: 'Waiting for scans', completed: 0, total: 5 }); setAperture(0);
     }
     setReport(null); setProbe(null); setPaused(false); setError(''); setParts(next);
   }
@@ -476,13 +548,14 @@ export function App() {
   }
   function importTomography(files: File[], allowIncompletePreview: boolean) {
     setToolsOpen(true); setTomographyOpen(true);
+    setCbctPipelineArmed(true);
     tomographyFiles.current = { files, allowIncompletePreview };
     tomography.importFiles(files, allowIncompletePreview);
   }
   async function load(files: File[]) {
     if (assessmentLock.current || workflowRuns.at(-1)?.status === 'running') cancelWorkflow('Paused · new source files imported');
     const dicoms = files.filter(file => /\.(dcm|dicom)$/i.test(file.name) || file.type === 'application/dicom');
-    if (dicoms.length) { importTomography(dicoms, false); files = files.filter(file => !dicoms.includes(file)); }
+    if (dicoms.length) { importTomography(dicoms, true); files = files.filter(file => !dicoms.includes(file)); }
     if (!files.length || importLock.current || tooth.busy) return;
     autoTeeth.cancel();
     stopAlignment();
@@ -574,6 +647,16 @@ export function App() {
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'platanus-collisions.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function captureView() {
+    try {
+      const capture = capture3d.current?.();
+      if (!capture) return;
+      const link = document.createElement('a');
+      link.href = capture.dataUrl;
+      link.download = 'platanus-view.png';
+      link.click();
+    } catch (cause) { setError(message(cause)); }
   }
   async function applyTexture(part: ModelPart, file: File) {
     if (importing) return;
@@ -758,10 +841,47 @@ export function App() {
   const selectPlanningModel = (model: string) => { if (!modelLocked) planning.setModel(model); };
   const reviewDisplay = planning.result && currentRun?.status !== 'stale' && aiReview.status !== 'stale' ? aiReview.result ? { text: aiReview.result.text, model: aiReview.result.model } : savedReview?.status === 'complete' ? { text: savedReview.detail, model: 'Saved AI review' } : undefined : undefined;
 
+  if (viewMode === 'patient') {
+    return (
+      <div className="app">
+        <PatientView
+          parts={viewportParts}
+          referenceParts={referenceParts}
+          opacities={sceneOpacities}
+          toothData={tooth.data}
+          assemblies={restorations.assemblies}
+          selectedFdi={tooth.selectedTooth}
+          onSelectTooth={code => tooth.select(code)}
+          onClose={() => {
+            setViewMode('clinical');
+            if (typeof window !== 'undefined') window.location.hash = '';
+          }}
+        />
+      </div>
+    );
+  }
+
   return <div className="app" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true); } }} onDragOver={drag} onDragLeave={event => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); void load(Array.from(event.dataTransfer.files)); }}>
     <header className="app-header">
-      <div className="brand"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span><span>Platanus <span className="brand-divider">/</span> <strong>Implant planning</strong></span><span className="version">v2</span></div>
-      <div className="header-actions"><button aria-expanded={tomographyOpen} onClick={openTomography}>CBCT{tomography.volume && <span className="badge">Loaded</span>}</button><button aria-expanded={scansOpen} aria-controls="scan-manager" onClick={() => setScansOpen(value => !value)}><Glyph kind="file" />Files{parts.length > 0 && <span className="badge">{parts.length}</span>}</button><button className="primary" disabled={importing || aligning || tooth.busy || assessing || restorations.busy} onClick={() => input.current?.click()}>{importing ? <span className="spinner" /> : <Glyph kind="add" />}{importing ? 'Reading files…' : 'Add files'}</button></div>
+      <div className="brand"><span className="brand-logo-wrap" aria-label="Céflow"><img src="/brand/ceflow-logo-navy.png" alt="Céflow" className="ceflow-logo ceflow-logo--light" /><img src="/brand/ceflow-logo-periwinkle.png" alt="Céflow" className="ceflow-logo ceflow-logo--dark" /></span><span className="brand-divider">/</span><span className="brand-mark brand-mark--platanus" aria-hidden="true"><img src="/brand/platanus-logo.png" alt="Platanus" className="brand-icon-img" /></span><span className="brand-partner-text">Platanus</span></div>
+      <div className="header-case-badge">
+        <span className="case-id-tag">CASE #1082</span>
+        <span className="case-divider">·</span>
+        <span className="case-engine-status">
+          <span className={`engine-dot ${importing || aligning || busy || restorations.busy ? 'engine-dot--busy' : 'engine-dot--ready'}`} />
+          {importing ? 'Importing…' : aligning ? 'Aligning…' : busy ? 'Computing…' : 'Engine: Ready'}
+        </span>
+      </div>
+      <div className="header-actions">
+        <button type="button" className="patient-report-link-btn" onClick={() => setViewMode('patient')} title="Ver informe para el paciente">
+          <Glyph kind="file" />
+          <span>Patient report</span>
+        </button>
+        <button className="theme-toggle" aria-label="Toggle color theme" title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'} onClick={toggleTheme}><Glyph kind={theme === 'dark' ? 'sun' : 'moon'} /></button>
+        <button aria-expanded={tomographyOpen} onClick={openTomography}>CBCT{tomography.volume && <span className="badge">Loaded</span>}</button>
+        <button aria-expanded={scansOpen} aria-controls="scan-manager" onClick={() => setScansOpen(value => !value)}><Glyph kind="file" />Files{parts.length > 0 && <span className="badge">{parts.length}</span>}</button>
+        <button className="primary" disabled={importing || aligning || tooth.busy || assessing || restorations.busy} onClick={() => input.current?.click()}>{importing ? <span className="spinner" /> : <Glyph kind="add" />}{importing ? 'Reading files…' : 'Add files'}</button>
+      </div>
       <input ref={input} type="file" accept=".stl,.obj,.ply,.mtl,.jpg,.jpeg,.png,.dcm,.dicom" multiple hidden aria-label="Import 3D files" onChange={event => void load(Array.from(event.target.files ?? []))} />
       <input ref={textureInput} type="file" accept=".jpg,.jpeg,.png" hidden aria-label="Attach scan texture" onChange={event => { const file = event.target.files?.[0]; if (file && active) void applyTexture(active, file); event.target.value = ''; }} />
       <input ref={sessionInput} type="file" accept=".json,application/json" hidden aria-label="Reopen case session" onChange={event => { const file = event.target.files?.[0]; if (file) void reopenSession(file); event.target.value = ''; }} />
@@ -778,7 +898,7 @@ export function App() {
         {!parts.length ? <button className="import-zone" disabled={importing || aligning} onClick={() => input.current?.click()}><Glyph kind="file" /><strong>{importing ? 'Reading your geometry…' : 'Add your scans'}</strong><span>Choose files or drop them anywhere</span><small>STL · OBJ + MTL · PLY + JPG/PNG</small></button> : <div className="part-list">{parts.map(part => {
           const analysis = report?.parts.find(item => item.id === part.id);
           const hit = !!analysis && ((analysis.crossingTriangles ?? analysis.intersectingTriangles) > 0 || analysis.penetratingVertices > 0);
-          return <div className={`part-row ${part.id === selected ? 'selected' : ''}`} key={part.id}>{part.role !== 'bite' && <input type="checkbox" aria-label={`Show ${part.name}`} checked={part.visible && opacityFor(part) > 0} disabled={importing} onChange={() => setOpacities(current => ({ ...current, [part.id]: opacityFor(part) > 0 ? 0 : 1 }))} />}<button className="part-select" onClick={() => { setSelected(part.id); setFocusRestoration(false); setProbe(null); }}><span className="part-name">{part.name}</span><span className="part-meta">{part.role === 'bite' ? 'Alignment reference · hidden' : `${roleLabels[part.role ?? 'model']} · ${count(part.triangles)} triangles`}{part.role !== 'bite' && opacityFor(part) < 1 && <span className="opacity-badge">{Math.round(opacityFor(part) * 100)}% opacity</span>}{hit && <span className="hit-dot" title="Collision detected" />}</span></button><button className="icon-button remove-part" disabled={importing} aria-label={`Remove ${part.name}`} onClick={() => { updateParts(parts.filter(item => item.id !== part.id)); setOpacities(current => { const next = { ...current }; delete next[part.id]; return next; }); clearFit(); if (selected === part.id) setSelected(null); }}><Glyph kind="close" /></button></div>;
+          return <div className={`part-row ${part.id === selected ? 'selected' : ''}`} key={part.id}>{part.role !== 'bite' && <input type="checkbox" aria-label={`Show ${part.name}`} checked={part.visible && opacityFor(part) > 0} disabled={importing} onChange={() => setOpacities(current => ({ ...current, [part.id]: opacityFor(part) > 0 ? 0 : 1 }))} />}<button className="part-select" onClick={() => { setSelected(part.id); setFocusRestoration(false); setProbe(null); }}><span className="part-name">{part.name}</span><span className="part-meta">{part.role === 'bite' ? 'Alignment reference · hidden' : <>{roleLabels[part.role ?? 'model']} · <span className="num">{count(part.triangles)} triangles</span></>}{part.role !== 'bite' && opacityFor(part) < 1 && <span className="opacity-badge"><span className="num">{Math.round(opacityFor(part) * 100)}% opacity</span></span>}{hit && <span className="hit-dot" title="Collision detected" />}</span></button><button className="icon-button remove-part" disabled={importing} aria-label={`Remove ${part.name}`} onClick={() => { updateParts(parts.filter(item => item.id !== part.id)); setOpacities(current => { const next = { ...current }; delete next[part.id]; return next; }); clearFit(); if (selected === part.id) setSelected(null); }}><Glyph kind="close" /></button></div>;
         })}</div>}
 
         {active && <section className="part-detail" aria-label="Selected part details">
@@ -806,10 +926,11 @@ export function App() {
       </aside>
 
       <div className="main-column">
-        <div className="workspace-topline"><div><p className="workspace-eyebrow">Guided planning</p><h1>{parts.length ? 'Your case, in progress.' : 'From scans to a planning draft.'}</h1><p>{parts.length ? `${parts.length} scan parts · ${processState.generatedCount} current concept${processState.generatedCount === 1 ? '' : 's'} · distances in file units` : 'Add patient files. Start once. Follow the process.'}</p></div><span className="case-state"><span />{processState.status === 'review' ? 'Review pending' : processState.status.replaceAll('-', ' ')}</span></div>
+        <div className="workspace-topline"><div><p className="workspace-eyebrow">Guided planning</p><h1>{parts.length ? 'Your case, in progress.' : 'From scans to a planning draft.'}</h1><p>{parts.length ? <><span className="num">{parts.length} scan parts</span> · <span className="num">{processState.generatedCount} current concept{processState.generatedCount === 1 ? '' : 's'}</span> · distances in file units</> : 'Add patient files. Start once. Follow the process.'}</p></div><span className="case-state"><span />{processState.status === 'review' ? 'Review pending' : processState.status.replaceAll('-', ' ')}</span></div>
+
         <div className="planning-workspace"><div className="planning-scene">
           {tomography.volume && <CbctOverlayControls hasScans={parts.some(part => part.role !== 'bite')} mmPerUnit={mmPerUnit} onScale={setCbctScale}
-            busy={cbctAlignment.busy} disabled={cbctAlignmentDisabled} onAlign={cbctAlignment.run} onCancel={cbctAlignment.cancel}
+            busy={cbctAlignment.busy} disabled={cbctAlignmentDisabled} onAlign={() => { setCbctPipelineArmed(true); cbctAlignment.run(); }} onCancel={() => { setCbctPipelineArmed(false); cbctAlignment.cancel(); }}
             canReset={!!sceneAlignment && cbctSourcesMatch(sceneAlignment.before, parts)} onReset={resetSceneAlignment}
             onLandmarks={() => { openTomography(); requestAnimationFrame(() => { const details = tomographyPanel.current?.querySelector<HTMLDetailsElement>('.tomography-registration'); if (details) { details.open = true; details.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }); }}
             result={currentSceneAlignment?.result} aligned={!!currentSceneAlignment || completeArchRegistration}
@@ -819,7 +940,7 @@ export function App() {
             referenceOpacity={referenceOpacity} onReferenceOpacity={setReferenceOpacity}
             scanOpacity={Math.max(0, ...allParts.filter(part => part.role !== 'bite').map(opacityFor))}
             onScanOpacity={opacity => setOpacities(current => ({ ...current, ...Object.fromEntries(allParts.filter(part => part.role !== 'bite').map(part => [part.id, opacity])) }))} />}
-          <Viewport compact parts={viewportParts} mmPerUnit={mmPerUnit} referenceParts={referenceParts} framingRevision={framingRevision} onCaptureReady={captureReady} onMeasurement={receiveMeasurement} opacities={sceneOpacities} report={report} tolerance={tolerance} selected={focusRestoration ? selectedRestorationPart?.id ?? selected : selected} heatmap={heatmap} wireframe={wireframe}
+          <Viewport compact parts={viewportParts} mmPerUnit={mmPerUnit} referenceParts={referenceParts} framingRevision={framingRevision} onCaptureReady={captureReady} onViewerReady={viewerActionsReady} onNavigationModeChange={setNavigationMode} upAxis={upAxis} onUpAxisChange={setUpAxis} showAnnotations={showAnnotations} onShowAnnotationsChange={setShowAnnotations} expanded={viewerExpanded} onExpandedChange={setViewerExpanded} onMeasurement={receiveMeasurement} measurementDisabled={aperture !== 0 || sceneAperture !== 0} opacities={sceneOpacities} report={report} tolerance={tolerance} selected={focusRestoration ? selectedRestorationPart?.id ?? selected : selected} heatmap={heatmap} wireframe={wireframe}
             floatingControls={selectedRestoration ? { partIds: selectedRestoration.parts.map(part => part.id), content: exitExpanded => <RestorationFloatingEditor
               assembly={selectedRestoration} assemblies={restorations.assemblies} component={restorationComponent} mmPerUnit={mmPerUnit} onComponent={component => { setRestorationComponent(component); setFocusRestoration(true); }}
               minimized={!restorationEditorOpen} onExpand={openRestorationEditor}
@@ -828,7 +949,30 @@ export function App() {
               busy={restorations.busy || importing || aligning || sessionBusy || planning.busy || assessing || !!pendingConcepts} error={restorations.error}
               onSelect={id => { restorations.setSelectedId(id); setFocusRestoration(true); }} onMinimize={() => setRestorationEditorOpen(false)} onAgentEdit={() => { exitExpanded(); openRestorationAssistant(); }} onReview={() => { exitExpanded(); openTools(2); }}
               onEdit={(id, edit) => { recordCorrection('candidate', `${id}:manual-edit`); void restorations.edit(id, edit, { actor: 'manual' }).catch(() => {}); }} /> } : undefined}
-            visibilityControls={allParts.length > 0 ? <details className="scene-menu"><summary>Scene visibility</summary><SceneVisibility parts={allParts} opacities={opacities} onOpacity={(arch, opacity) => setOpacities(current => withArchOpacity(allParts, current, arch, opacity))} onReset={() => setOpacities({})} /></details> : undefined}
+            dock={allParts.length ? <ViewerDock
+              disabled={!visible.length}
+              navigationMode={navigationMode}
+              heatmap={heatmap}
+              wireframe={wireframe}
+              canFocus={!!selected && visible.some(part => part.id === selected)}
+              opening={aperture}
+              showOpening={upper.length > 0 && lower.length > 0}
+              sceneVisibility={hasArch ? <SceneVisibility parts={allParts} opacities={opacities} onOpacity={(arch, opacity) => setOpacities(current => withArchOpacity(allParts, current, arch, opacity))} onReset={() => setOpacities({})} /> : undefined}
+              annotationsEnabled={!!toothView?.enabled}
+              annotationsVisible={showAnnotations || (!!toothView?.enabled && toothView.tool !== 'inspect')}
+              upAxis={upAxis}
+              expanded={viewerExpanded}
+              onZoom={direction => viewerActions.current?.zoom(direction)}
+              onFit={() => viewerActions.current?.fit()}
+              onFocusSelected={() => viewerActions.current?.focusSelected()}
+              onNavigationMode={mode => viewerActions.current?.setNavigationMode(mode)}
+              onCapture={captureView}
+              onToggleHeatmap={() => setHeatmap(value => !value)}
+              onToggleWireframe={() => setWireframe(value => !value)}
+              onOpening={setAperture}
+              onToggleAnnotations={() => setShowAnnotations(value => !value)}
+              onUpAxisChange={setUpAxis}
+              onToggleExpanded={() => setViewerExpanded(value => !value)} /> : undefined}
             toothView={toothView}
             onToothEdit={event => { if (!importing && !aligning && !autoTeeth.busy && !planning.busy) { if (event.kind === 'pick' && event.tool === 'auto') { const fdi = autoTeeth.pick(event.hit); if (fdi) tooth.select(fdi); } else { if (event.tool !== 'inspect') recordCorrection('surface', event.tool); tooth.onEdit(event); } } }} onExitToothTool={() => tooth.setTool('inspect')}
             onImport={() => input.current?.click()} onProbe={value => {
@@ -847,7 +991,7 @@ export function App() {
         </div></div>
         <div className="advanced-workspace" id="advanced-tools" ref={toolsPanel} hidden={!toolsOpen}>
           <div className="advanced-heading"><div><p className="process-eyebrow">Case workspace</p><h2>Evidence & review details</h2></div><button onClick={() => setToolsOpen(false)}>Close details</button></div>
-          <nav className="workflow-steps" aria-label="Case details">{['Evidence', 'Findings', 'Components', 'Review'].map((label, index) => <button key={label} aria-current={step === index ? 'step' : undefined} onClick={() => { setStep(index); tooth.setTool('inspect'); tooth.setIsolate(false); }}><span>{index + 1}</span>{label}</button>)}</nav>
+          <nav className="workflow-steps" aria-label="Case details">{['Evidence', 'Findings', 'Components', 'Review'].map((label, index) => <button key={label} aria-current={step === index ? 'step' : undefined} onClick={() => { setStep(index); tooth.setTool('inspect'); tooth.setIsolate(false); }}><span><span className="num">{index + 1}</span></span>{label}</button>)}</nav>
           <div className="display-options"><label><input type="checkbox" checked={heatmap} onChange={event => setHeatmap(event.target.checked)} />Collision colors</label><label><input type="checkbox" checked={wireframe} onChange={event => setWireframe(event.target.checked)} />Wireframe</label><button className="text-button" disabled={!Object.keys(opacities).length} onClick={() => setOpacities({})}>Reset opacity</button><button disabled={!report || busy || importing} onClick={exportReport}>Export distance report</button></div>
           <div className="advanced-planning">
           <PlanningPanel step={step} aiActivity={aiActivity} assessment={planning.result} planning={{ ...planning, prepared: preparedCase, setModel: selectPlanningModel }} modelLocked={modelLocked} reviewing={aiReview.status === 'running'} onRunWorkflow={() => queueWorkflow(planning.configured === true ? 'ai' : 'local', false)} parts={parts} teeth={tooth.data} counts={tooth.counts} fitReady={fitSummary.length > 0} fitSummary={fitSummary.length ? `${fitSummary.length} arches refined to bite references` : 'Original shared coordinates; alignment needs review'}
@@ -862,7 +1006,7 @@ export function App() {
         <div ref={tomographyPanel} className="tomography-workspace" hidden={!tomographyOpen}><div className="advanced-heading"><h2>CBCT evidence</h2><button onClick={() => setTomographyOpen(false)}>Close CBCT</button></div><TomographyPanel
           volume={tomography.volume} parts={allParts} mmPerUnit={mmPerUnit} onMmPerUnit={setCbctScale} alignmentBusy={cbctAlignment.busy}
           loading={tomography.loading} surfaceBusy={tomography.surfaceBusy} status={tomography.progress || tomography.status} error={tomography.error}
-          onImport={importTomography} onCancel={() => { tomography.cancel(); cbctAlignment.cancel(); }} onClear={() => { cbctAlignment.cancel(); tomographyFiles.current = null; tomography.clear(); setTomographyViews([]); }}
+          onImport={importTomography} onCancel={() => { setCbctPipelineArmed(false); tomography.cancel(); cbctAlignment.cancel(); }} onClear={() => { setCbctPipelineArmed(false); cbctAlignment.cancel(); tomographyFiles.current = null; tomography.clear(); setTomographyViews([]); }}
           threshold={tomography.threshold} onThreshold={tomography.setThreshold} stride={tomography.stride} onStride={tomography.setStride}
           seriesChoices={tomography.seriesChoices} onSelectSeries={id => { const input = tomographyFiles.current; if (input) tomography.importFiles(input.files, input.allowIncompletePreview, id); }} surface={tomography.surface}
           referenceVisible={referenceVisible} onReferenceVisible={setReferenceVisible} referenceOpacity={referenceOpacity} onReferenceOpacity={setReferenceOpacity}
@@ -904,11 +1048,11 @@ export function App() {
 
         {!!parts.length && step === 0 && <details className="bite-panel" aria-label="Bite alignment" aria-busy={aligning}><summary>Alignment details · {aligning ? 'refining automatically…' : alignmentIssue ? 'current pose kept · review needed' : fitSummary.length ? 'saved bite pose' : 'shared file coordinates'}</summary>
           {alignmentIssue && <div className="bite-notice" role="status"><strong>Current scan pose kept</strong><p>The scans are ready to inspect. Automatic refinement could not establish a better bite pose; review the alignment before interpreting contacts.</p><details><summary>Why refinement was skipped</summary><p>{alignmentIssue}</p></details></div>}
-          <div className="bite-heading"><div><h2>Bite position</h2><p>{upper.length} upper · {lower.length} lower · {bites.length} bite {bites.length === 1 ? 'reference' : 'references'}</p></div><button className="primary" disabled={!canAlign || importing} onClick={() => aligning ? stopAlignment() : refineBite()}>{aligning ? 'Cancel refinement' : 'Refine to bite'}</button></div>
+          <div className="bite-heading"><div><h2>Bite position</h2><p><span className="num">{upper.length} upper</span> · <span className="num">{lower.length} lower</span> · <span className="num">{bites.length} bite {bites.length === 1 ? 'reference' : 'references'}</span></p></div><button className="primary" disabled={!canAlign || importing} onClick={() => aligning ? stopAlignment() : refineBite()}>{aligning ? 'Cancel refinement' : 'Refine to bite'}</button></div>
           <p className="hint">Bite captures stay fixed. Components of each imported arch or bite file are grouped; refinement starts from a nearby pose and includes hidden bite references. Check the fit visually before inspecting contacts.</p>
           {!canAlign && <p className="hint">Assign one source file per upper/lower arch and at least one bite capture. Parts from the same file are grouped.</p>}
           <details className="bite-settings"><summary>Adjust alignment settings</summary><div className="bite-controls"><label>Match radius <input aria-label="Bite match radius" type="number" min={Number.MIN_VALUE} max="1000000" step="any" value={matchDistance} disabled={aligning || importing} onChange={event => { const value = event.target.valueAsNumber; if (Number.isFinite(value) && value > 0 && value <= 1e6) { matchDistanceEdited.current = true; setMatchDistance(value); } }} /> u</label><button disabled={aligning || importing || !parts.some(part => part.pose || part.offset.some(value => value) || part.rotation?.some(value => value))} onClick={() => { updateParts(parts.map(part => ({ ...part, pose: undefined, offset: [0, 0, 0], rotation: [0, 0, 0] }))); setSceneAlignment(null); setCbctRegistrations([]); clearFit(); }}>Restore file poses</button></div></details>
-          {!!fitSummary.length && <div className="bite-fit-results"><p className="fit-summary" role="status">Saved bite pose · match radius {number(fitRadius ?? 0)} u</p><div className="table-scroll"><table aria-label="Sampled bite fit"><thead><tr><th>Arch / reference</th><th>RMS before → after</th><th>Samples</th><th>Within radius / normal match</th></tr></thead><tbody>{fitSummary.flatMap(fit => fit.references.map(reference => <tr key={`${fit.id}-${reference.id}`}><td>{parts.find(part => part.id === fit.id)?.name} / {parts.find(part => part.id === reference.id)?.name}</td><td>{number(reference.beforeRms)} → {number(reference.afterRms)} u</td><td>{count(reference.samples)}</td><td>{number(reference.beforeCoverage * 100)}% → {number(reference.afterCoverage * 100)}%</td></tr>))}</tbody></table></div><p className="hint">RMS uses each complete source capture’s fixed initial samples, combining its disconnected patches. Coverage is the fraction within the radius with compatible surface normals, not contact area or a clinical accuracy measure.</p></div>}
+          {!!fitSummary.length && <div className="bite-fit-results"><p className="fit-summary" role="status">Saved bite pose · match radius <span className="num">{number(fitRadius ?? 0)} u</span></p><div className="table-scroll"><table aria-label="Sampled bite fit"><thead><tr><th>Arch / reference</th><th>RMS before → after</th><th>Samples</th><th>Within radius / normal match</th></tr></thead><tbody>{fitSummary.flatMap(fit => fit.references.map(reference => <tr key={`${fit.id}-${reference.id}`}><td>{parts.find(part => part.id === fit.id)?.name} / {parts.find(part => part.id === reference.id)?.name}</td><td><span className="num">{number(reference.beforeRms)}</span> → <span className="num">{number(reference.afterRms)} u</span></td><td><span className="num">{count(reference.samples)}</span></td><td><span className="num">{number(reference.beforeCoverage * 100)}%</span> → <span className="num">{number(reference.afterCoverage * 100)}%</span></td></tr>))}</tbody></table></div><p className="hint">RMS uses each complete source capture’s fixed initial samples, combining its disconnected patches. Coverage is the fraction within the radius with compatible surface normals, not contact area or a clinical accuracy measure.</p></div>}
           {aligning && <p className="fit-summary" role="status"><span className="spinner" /> Refining locally…</p>}
         </details>}
 
@@ -921,7 +1065,7 @@ export function App() {
 
         </details>
         {probe && <section className="probe" aria-label="Vertex inspection"><div><strong>Vertex inspection</strong><span>{parts.find(part => part.id === probe.id)?.name}</span></div><dl><div><dt>Triangle / corner</dt><dd>{probe.face} / {probe.vertex}</dd></div><div><dt>XYZ</dt><dd>{probe.position.map(number).join(', ')} u</dd></div><div><dt>Signed sample distance</dt><dd>{probe.distance === null ? 'No comparison' : `${number(probe.distance)} u`}</dd></div><div><dt>Triangle intersects</dt><dd>{probe.intersecting ? 'Yes' : 'No'}</dd></div></dl><p className="hint">Nearest corner to your click. Negative distance means inside a closed surface. Triangle and corner indices start at 0.</p></section>}
-        {!!warnings.length && <details className="import-notes"><summary>Import notes ({warnings.length})</summary><ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
+        {!!warnings.length && <details className="import-notes"><summary>Import notes (<span className="num">{warnings.length}</span>)</summary><ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
         <details className="assistant-details"><summary>Ask about this case</summary><AssistantPanel context={assistantContext} tomography={tomographySource} restoration={{
           assemblies: restorations.assemblies, selectedId: restorations.selectedId,
           busy: restorations.busy || importing || aligning || planning.busy || assessing || !!pendingConcepts || sessionBusy,
@@ -936,5 +1080,8 @@ export function App() {
     </main>
     {dragging && <div className="drop-overlay"><Glyph kind="add" /><strong>Drop patient scans and textures</strong><span>STL, OBJ/MTL, PLY, JPG or PNG</span></div>}
     {importing && <div className="import-progress" role="status"><span className="spinner" />Reading and preparing your meshes…</div>}
+    {cbctPipelineArmed && cbctPipeline && <CbctPipelineToast state={cbctPipeline} stacked={importing}
+      onCancel={() => { setCbctPipelineArmed(false); tomography.cancel(); cbctAlignment.cancel(); }}
+      onDismiss={() => setCbctPipelineArmed(false)} />}
   </div>;
 }

@@ -157,12 +157,12 @@ export function ProcessPanel(props: ProcessPanelProps) {
     {(needsAttention || reviewing) && issues.length > 0 && <div className="process-panel__issues" aria-labelledby={`${id}-issues`}>
       <h3 id={`${id}-issues`}>{needsAttention ? 'Workflow details' : 'Draft findings'}</h3>
       <ul>{issues.map((issue, index) => <li key={`${index}-${issue}`}>{issue}</li>)}</ul>
-      {remainingIssues > 0 && <p className="process-panel__note">{remainingIssues} more {remainingIssues === 1 ? 'item' : 'items'} in the draft details.</p>}
+      {remainingIssues > 0 && <p className="process-panel__note"><span className="num">{remainingIssues}</span> more {remainingIssues === 1 ? 'item' : 'items'} in the draft details.</p>}
       {reviewing && <p className="process-panel__note">These findings do not pause draft generation or require approval.</p>}
     </div>}
 
     {state.status === 'ready' && props.alignmentNotice && <p className="process-panel__note" role="status">{props.alignmentNotice}</p>}
-    {state.status === 'ready' && issues.length > 0 && <p className="process-panel__note">{issues.length} scan context {issues.length === 1 ? 'note' : 'notes'} available in Advanced tools. You can start the draft now.</p>}
+    {state.status === 'ready' && issues.length > 0 && <p className="process-panel__note"><span className="num">{issues.length}</span> scan context {issues.length === 1 ? 'note' : 'notes'} available in Advanced tools. You can start the draft now.</p>}
 
     <AnthropicModelSelect label="Workflow model" value={props.model} defaultModel={props.defaultModel}
       disabled={props.modelLocked} onChange={props.onModel} />

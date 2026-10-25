@@ -54,7 +54,7 @@ const TITLES = ['Prepare the case', 'Review your draft', 'Concepts & site readin
 
 function EvidenceReferences({ references, views }: { references: string[]; views: PreparedView[] }) {
   if (!references.length) return <p className="planning-muted">No supporting references supplied.</p>;
-  return <details className="planning-details planning-evidence"><summary>Supporting evidence · {references.length}</summary>
+  return <details className="planning-details planning-evidence"><summary>Supporting evidence · <span className="num">{references.length}</span></summary>
     <div className="planning-references">{references.map(reference => {
       const view = views.find(item => item.id === reference);
       return view ? <figure key={reference}><img src={imageSource(view)} alt={`${reference}: ${view.label}`} loading="lazy" />
@@ -121,12 +121,12 @@ export function PlanningPanel(props: PlanningPanelProps) {
     <p className="planning-muted">Start generates and fits supported draft sites automatically. These tools let you request another local pass or use manual mode.</p>
     <div className="planning-actions"><button className="planning-primary" type="button" disabled={editingDisabled || !evidence?.sources.length || !requestedCount} onClick={props.onGenerate}>
       {props.generating ? 'Generating concepts…' : props.assembliesCount ? 'Generate remaining concepts' : 'Generate draft concepts'}
-    </button><span className="planning-muted">{requestedCount} draft / reviewed site{requestedCount === 1 ? '' : 's'}</span></div>
+    </button><span className="planning-muted"><span className="num">{requestedCount} draft / reviewed site{requestedCount === 1 ? '' : 's'}</span></span></div>
     {!requestedCount && <p className="planning-muted">No supported site is available yet. A concept needs localized scan geometry; use the evidence details to inspect coverage or optional site corrections.</p>}
   </details>;
 
   return <section className="planning-panel" aria-labelledby={`${id}-heading`}>
-    <header className="planning-header"><div><p className="planning-eyebrow">Case draft · {step + 1} / 4</p><h2 id={`${id}-heading`}>{TITLES[step]}</h2></div><span className="planning-badge">Clinical review pending</span></header>
+    <header className="planning-header"><div><p className="planning-eyebrow">Case draft · <span className="num">{step + 1} / 4</span></p><h2 id={`${id}-heading`}>{TITLES[step]}</h2></div><span className="planning-badge">Clinical review pending</span></header>
     {props.progress && <div className="workflow-progress" role="status">{planning.stage || (props.progress.stage === 'Waiting for scans' && planning.prepared ? 'Evidence prepared · start the workflow' : props.progress.stage)}<progress value={props.progress.completed} max={props.progress.total} aria-label="Case workflow progress" /></div>}
     {props.progress?.stage.startsWith('Paused') && !editingDisabled && <button type="button" onClick={props.onResume}>Resume local draft</button>}
     {props.generating && <div className="planning-status"><span>Fitting local candidates; completed sites remain available.</span><button type="button" onClick={props.onCancel}>Pause workflow</button></div>}
@@ -139,11 +139,11 @@ export function PlanningPanel(props: PlanningPanelProps) {
 
     {step === 0 && <>
       <section className="planning-section">
-        <div className="planning-row"><h3>Your imported evidence</h3><span className="planning-badge">{evidence ? `${views.length} local views` : planning.busy ? 'Preparing locally' : 'Waiting for scans'}</span></div>
-        <p>{upper.length} upper · {lower.length} lower · {bites.length} bite reference{bites.length === 1 ? '' : 's'}</p>
+        <div className="planning-row"><h3>Your imported evidence</h3><span className="planning-badge">{evidence ? <span className="num">{views.length} local views</span> : planning.busy ? 'Preparing locally' : 'Waiting for scans'}</span></div>
+        <p><span className="num">{upper.length} upper</span> · <span className="num">{lower.length} lower</span> · <span className="num">{bites.length} bite reference{bites.length === 1 ? '' : 's'}</span></p>
         {scans.some(part => part.role !== 'model' && part.roleSource === 'filename-hypothesis') && <p className="planning-muted">Arch/reference roles remain filename hypotheses. The automatic draft uses them without recording a user confirmation.</p>}
         {!scans.length && <p className="planning-empty">Import upper and/or lower scans to begin. Preparation runs on this device.</p>}
-        {!!unassigned.length && <p className="planning-note">{unassigned.length} scan part{unassigned.length === 1 ? ' has' : 's have'} no arch/reference role.{hasArch ? ' Available arches can still progress.' : ' Assign an upper or lower scan in the advanced corrections below to prepare geometry.'}</p>}
+        {!!unassigned.length && <p className="planning-note"><span className="num">{unassigned.length} scan part{unassigned.length === 1 ? '' : 's'}</span>{unassigned.length === 1 ? ' has' : ' have'} no arch/reference role.{hasArch ? ' Available arches can still progress.' : ' Assign an upper or lower scan in the advanced corrections below to prepare geometry.'}</p>}
         <p className="planning-muted">{props.fitSummary || 'Using original shared coordinates; clinical alignment is unvalidated.'} Bite scans support alignment only.</p>
       </section>
       <section className="planning-section planning-assessment">
@@ -152,7 +152,7 @@ export function PlanningPanel(props: PlanningPanelProps) {
         {overview?.base64 ? <figure className="planning-overview"><img src={imageSource(overview)} alt={`Prepared overview: ${overview.label}`} />
           <figcaption>{overview.id} · {overview.label}. Patient side can remain unknown.</figcaption></figure>
           : <p className="planning-empty">{planning.busy ? 'Preparing an overview on this device…' : planning.prepared ? 'Local geometry is ready. A draft can proceed without rendered overview images.' : hasArch ? 'Geometry preparation is not ready. Check errors or retry local preparation below.' : 'An arch overview will appear after import.'}</p>}
-        <p className="planning-disclosure" id={`${id}-upload`}>{planning.configured && views.length ? `Start sends ${views.length} rendered JPEG views, anonymous scan/candidate aliases, chart records, local site evidence, ruler and geometry/pose measurements to Anthropic (${planning.modelLabel}). Notes and original filenames are excluded; rendered surfaces can still contain patient information. Raw meshes stay on this device. AI reviews tooth regions and sites, directs component design, then reads measured goals and may request up to four bounded revisions. Up to six external requests share the workflow budget.` : 'AI images are unavailable or the provider is unconfigured. Start prepares a local geometric draft and concepts; no provider request is made.'} Missing-site suggestions do not confirm tooth absence or implant need.</p>
+        <p className="planning-disclosure" id={`${id}-upload`}>{planning.configured && views.length ? <>Start sends <span className="num">{views.length} rendered JPEG views</span>, anonymous scan/candidate aliases, chart records, local site evidence, ruler and geometry/pose measurements to Anthropic ({planning.modelLabel}). Notes and original filenames are excluded; rendered surfaces can still contain patient information. Raw meshes stay on this device. AI reviews tooth regions and sites, directs component design, then reads measured goals and may request up to four bounded revisions. Up to six external requests share the workflow budget.</> : 'AI images are unavailable or the provider is unconfigured. Start prepares a local geometric draft and concepts; no provider request is made.'} Missing-site suggestions do not confirm tooth absence or implant need.</p>
         <div className="planning-actions"><button className="planning-primary" type="button" disabled={!canAssess} aria-describedby={`${id}-upload`} onClick={() => void prepareDraft()}>{planning.configured ? 'Start AI workflow' : 'Start local workflow'}</button>
           {result && <button type="button" disabled={editingDisabled} onClick={() => props.onStep(1)}>Review draft</button>}</div>
         {!planning.patientRight && <p className="planning-muted">Patient side is unresolved. Localized gaps can still produce Upper/Lower draft sites with illustrative anatomy; their anatomical FDI stays unknown.</p>}
@@ -178,7 +178,7 @@ export function PlanningPanel(props: PlanningPanelProps) {
         <p>{props.collisionSummary || 'No current collision metrics were supplied to this panel.'}</p>
         <p className="planning-muted">Local metrics include triangle counts, candidate surface area (squared file units) and smoothed peak relief (file units). They are not anatomical tooth height or bone measurements. Collision reports use sampled surface distances and triangle intersection flags; they do not measure exact contact area or overlap volume.</p>
         <p className="planning-muted">Partial scans, texture appearance and static bite views cannot establish diagnosis, bone-safe placement, surgical trajectory or dynamic occlusion.</p>
-        {evidence?.sources.map(source => <div className="planning-local-summary" key={source.partId}><strong>{parts.find(part => part.id === source.partId)?.role} · {source.scan.candidates.length} candidate regions</strong><span>{count(source.scan.unassignedTriangles)} unassigned triangles; unassigned does not mean missing.</span>
+        {evidence?.sources.map(source => <div className="planning-local-summary" key={source.partId}><strong>{parts.find(part => part.id === source.partId)?.role} · {source.scan.candidates.length} candidate regions</strong><span><span className="num">{count(source.scan.unassignedTriangles)} unassigned triangles</span>; unassigned does not mean missing.</span>
           {!!source.scan.warnings.length && <ul>{source.scan.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>}</div>)}
         <div className="planning-thumbnails">{views.map(view => <figure key={view.id}><img src={imageSource(view)} alt={`${view.id}: ${view.label}`} loading="lazy" /><figcaption>{view.id} · {view.label} · {view.sourceId ?? 'Current-pose arches'}</figcaption></figure>)}</div>
         <div className="planning-actions"><button type="button" disabled={!hasArch || editingDisabled} onClick={planning.prepare}>Retry local preparation</button><button className="planning-link" type="button" onClick={props.onCorrections}>Correction tools</button></div>
@@ -191,8 +191,8 @@ export function PlanningPanel(props: PlanningPanelProps) {
         {props.draftSummary && <p className="planning-note" role="status">{props.draftSummary}</p>}
         <p className="planning-muted">Hypotheses for review. A visible gap does not confirm a missing tooth, diagnosis or implant indication.</p>
       </section>
-      <section className="planning-section"><div className="planning-row"><h3>Possible missing positions</h3><span className="planning-badge">{missing.length} observations</span></div>
-        <div className="planning-cards">{missing.map(finding => <article className="planning-card" key={finding.id}><div className="planning-row"><h4>{finding.title}</h4>{finding.fdi !== null && <button className="planning-tooth" type="button" onClick={() => props.onSelectTooth(finding.fdi!)}>FDI {finding.fdi}</button>}</div>
+      <section className="planning-section"><div className="planning-row"><h3>Possible missing positions</h3><span className="planning-badge"><span className="num">{missing.length} observations</span></span></div>
+        <div className="planning-cards">{missing.map(finding => <article className="planning-card" key={finding.id}><div className="planning-row"><h4>{finding.title}</h4>{finding.fdi !== null && <button className="planning-tooth" type="button" onClick={() => props.onSelectTooth(finding.fdi!)}>FDI <span className="num">{finding.fdi}</span></button>}</div>
           <p>{finding.detail}</p><p className="planning-review-label">Proposed gap · absence and clinical indication unconfirmed</p><EvidenceReferences references={finding.evidence} views={views} />
           {finding.fdi !== null && <details className="planning-details"><summary>Record a reviewed chart position</summary><p className="planning-muted">Only after checking scan coverage and the clinical record. This records missing status and implant concept intent; suitability remains unassessed.</p>
             <button type="button" disabled={editingDisabled || (counts[finding.fdi] ?? 0) > 0 || teeth.teeth[finding.fdi]?.status === 'not-scanned' || teeth.teeth[finding.fdi]?.status === 'present' || reviewedSites.includes(finding.fdi)} onClick={() => props.onConfirmMissing(finding.fdi!)}>Record reviewed missing + concept intent</button></details>}
@@ -200,25 +200,25 @@ export function PlanningPanel(props: PlanningPanelProps) {
         {!missing.length && <p className="planning-empty">No visible missing-position proposals were returned. Unlabeled or unscanned regions do not establish absence.</p>}
         {siteList}{generationAction}
       </section>
-      <details className="planning-section planning-secondary"><summary>Other observations & optional review actions · {otherFindings.length + result.actions.length}</summary>
-        <div className="planning-cards">{otherFindings.map(finding => <article className="planning-card" key={finding.id}><span className="planning-category">{readable(finding.category)}{finding.fdi !== null ? ` · FDI ${finding.fdi}` : ''}</span><h4>{finding.title}</h4><p>{finding.detail}</p><p className="planning-review-label">Proposed · requires clinical review</p><EvidenceReferences references={finding.evidence} views={views} /></article>)}
-          {result.actions.map(action => <article className="planning-card" key={action.id}><span className="planning-category">{readable(action.kind)}{action.fdi !== null ? ` · FDI ${action.fdi}` : ''}</span><h4>{action.title}</h4><p>{action.rationale}</p>
+      <details className="planning-section planning-secondary"><summary>Other observations & optional review actions · <span className="num">{otherFindings.length + result.actions.length}</span></summary>
+        <div className="planning-cards">{otherFindings.map(finding => <article className="planning-card" key={finding.id}><span className="planning-category">{readable(finding.category)}{finding.fdi !== null ? <> · FDI <span className="num">{finding.fdi}</span></> : ''}</span><h4>{finding.title}</h4><p>{finding.detail}</p><p className="planning-review-label">Proposed · requires clinical review</p><EvidenceReferences references={finding.evidence} views={views} /></article>)}
+          {result.actions.map(action => <article className="planning-card" key={action.id}><span className="planning-category">{readable(action.kind)}{action.fdi !== null ? <> · FDI <span className="num">{action.fdi}</span></> : ''}</span><h4>{action.title}</h4><p>{action.rationale}</p>
             <label className="planning-check"><input type="checkbox" checked={props.acceptedActions.includes(action.id)} disabled={editingDisabled} onChange={event => props.onConfirmAction(action.id, event.currentTarget.checked)} />Include review action · optional</label><p className="planning-muted">Including an action records planning intent. It does not approve findings or gate draft generation. Clinical prerequisites remain pending.</p><ul>{action.prerequisites.map((text, index) => <li key={index}>{text}</li>)}</ul><EvidenceReferences references={action.evidence} views={views} /></article>)}</div>
       </details>
-      <details className="planning-section planning-secondary"><summary>Tooth identity proposals · {eligibleMappings.length} eligible / {mappings.length} regions</summary>
+      <details className="planning-section planning-secondary"><summary>Tooth identity proposals · <span className="num">{eligibleMappings.length} eligible</span> / <span className="num">{mappings.length} regions</span></summary>
         <p className="planning-muted">Unknown and flagged regions need review. Existing labels, exclusions and chart conflicts must be preserved.</p>
-        <div className="planning-table-wrap"><table><caption className="planning-sr-only">Proposed tooth identities</caption><thead><tr><th>Region</th><th>FDI</th><th>Review</th></tr></thead><tbody>{mappings.map(mapping => <tr key={`${mapping.sourceId}:C${mapping.candidateId}`}><th><code>{mapping.sourceId}:C{mapping.candidateId}</code></th><td>{mapping.fdi ?? 'Unknown'}</td><td>{mapping.needsReview ? 'Needs review. ' : 'Eligible proposal. '}{mapping.reason}</td></tr>)}</tbody></table></div>
+        <div className="planning-table-wrap"><table><caption className="planning-sr-only">Proposed tooth identities</caption><thead><tr><th>Region</th><th>FDI</th><th>Review</th></tr></thead><tbody>{mappings.map(mapping => <tr key={`${mapping.sourceId}:C${mapping.candidateId}`}><th><code>{mapping.sourceId}:C{mapping.candidateId}</code></th><td>{mapping.fdi != null ? <span className="num">{mapping.fdi}</span> : 'Unknown'}</td><td>{mapping.needsReview ? 'Needs review. ' : 'Eligible proposal. '}{mapping.reason}</td></tr>)}</tbody></table></div>
         <div className="planning-actions"><button type="button" disabled={editingDisabled || !eligibleMappings.length} onClick={props.onApplyIdentities}>Apply eligible identities</button><button className="planning-link" type="button" onClick={props.onCorrections}>Correction tools</button></div>
       </details>
     </> : <div className="planning-empty"><h3>No planning draft yet</h3><p>Start this case’s planning workflow from the Evidence step.</p><button type="button" onClick={() => props.onStep(0)}>Review evidence</button></div>)}
 
     {step === 2 && <>
-      <section className="planning-section"><div className="planning-row"><h3>Local planning concepts</h3><span className="planning-badge">{count(props.assembliesCount)} assemblies</span></div>
+      <section className="planning-section"><div className="planning-row"><h3>Local planning concepts</h3><span className="planning-badge"><span className="num">{count(props.assembliesCount)} assemblies</span></span></div>
         {props.draftSummary && <p role="status">{props.draftSummary}</p>}
         <p>Each assembly has a separate fixture envelope, abutment and crown. Inspect or tune the components in the viewport controls.</p>
         <p className="planning-note">Planning concepts—clinical fit unvalidated. Bone, placement depth, surgical trajectory, implant connection and tissue fit remain unassessed. Dimensions use file units.</p>
         {siteList}
-        {!readiness.length && <p className="planning-muted">{reviewedSites.length} reviewed chart positions; geometric site localization still needs to run. Missing-position status alone does not make a site ready.</p>}
+        {!readiness.length && <p className="planning-muted"><span className="num">{reviewedSites.length} reviewed chart positions</span>; geometric site localization still needs to run. Missing-position status alone does not make a site ready.</p>}
         {generationAction}
         {props.generating && <p className="planning-muted" role="status">Local workers are localizing sites and constructing components. A requested site may still need a marker or corrected neighbours.</p>}
         <div className="planning-actions"><button className="planning-link" type="button" onClick={() => props.onStep(1)}>Review proposed sites</button><button className="planning-link" type="button" onClick={props.onCorrections}>Correct site / labels</button></div>

@@ -198,7 +198,7 @@ test('a queued design acknowledges pending construction while the worker journal
   const journal = render({ workflowRuns: [run] }, WorkflowJournal);
   assert.match(journal, /Workflow record · complete/);
   assert.match(journal, /Constructed fixture, abutment and crown/);
-  assert.match(journal, /Local tool results · 1/);
+  assert.match(journal.replace(/<[^>]+>/g, ''), /Local tool results · 1/);
 });
 
 test('all process review steps retain activity without duplicating the findings-step view', () => {

@@ -183,7 +183,7 @@ test('an invalid mapping or selected chart tooth cannot relabel an unknown candi
   props.proposal.mappings = [mapping(1, 37)];
   const html = render(AutoTeethPanel, props);
   assert.match(html, /<strong>Region C1<\/strong><span>FDI unknown<\/span>/);
-  assert.match(html, /Proposed FDI 37 is outside the active arch/);
+  assert.match(html.replace(/<[^>]+>/g, ''), /Proposed FDI 37 is outside the active arch/);
   assert.doesNotMatch(html, /<strong>FDI (18|37)<\/strong>/);
 });
 

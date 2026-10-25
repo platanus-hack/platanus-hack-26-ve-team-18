@@ -8,19 +8,24 @@
     "dev": "vite --host 127.0.0.1 --port 5175 --strictPort",
     "check": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
     "build": "pnpm check && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 5174"
+    "preview": "vite preview --host 127.0.0.1 --port 5174",
+    "start": "vite preview --host 0.0.0.0 --port ${PORT:-10000}"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.87",
     "ai": "^7.0.151",
     "dicom-parser": "1.8.21",
+    "dockbar": "^1.0.1",
+    "lucide-react": "^1.61.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "three": "0.186.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "26.6.5",
     "@types/react": "19.3.0",

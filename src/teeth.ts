@@ -37,6 +37,20 @@ export function toothName(code: number): string {
   return `${arch} ${side} ${TOOTH_NAMES[code % 10 - 1]}`;
 }
 
+const TOOTH_NAMES_ES = [
+  'Incisivo Central', 'Incisivo Lateral', 'Canino', 'Primer Premolar',
+  'Segundo Premolar', 'Primer Molar', 'Segundo Molar', 'Tercer Molar (Muela del Juicio)',
+] as const;
+
+export function toothNameEs(code: number): string {
+  requireTooth(code);
+  const quad = Math.floor(code / 10);
+  const pos = code % 10;
+  const side = quad === 1 || quad === 4 ? 'Derecho' : 'Izquierdo';
+  const arch = code < 30 ? 'Superior' : 'Inferior';
+  return `${TOOTH_NAMES_ES[pos - 1]} ${arch} ${side}`;
+}
+
 export function emptyToothRecord(): ToothRecord {
   return { status: 'unreviewed', restoration: 'none', note: '' };
 }

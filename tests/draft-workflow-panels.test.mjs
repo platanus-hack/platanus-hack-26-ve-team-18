@@ -111,7 +111,7 @@ test('unresolved bounded spaces describe available automatic drafts and collapse
   assert.match(html, /Automatic draft available · anatomical identity unresolved/);
   assert.match(html, /<details><summary>Optional identity correction &amp; skip<\/summary>/);
   assert.match(html, /<option value="0" selected="">Unresolved<\/option>/);
-  assert.match(html, /Illustrative crown template: FDI 26/);
+  assert.match(html, /Illustrative crown template: FDI <span class="num">26<\/span>/);
   assert.match(html, />Skip<\/button>/);
   assert.doesNotMatch(html, />Space FDI 26<\/button>/);
   assert.deepEqual(hypothesis, before);
@@ -151,7 +151,7 @@ test('restoration headings use draft arch labels and disclose template FDI only 
   assert.match(upper, /<strong>Upper draft site · molar<\/strong>/);
   assert.doesNotMatch(upper, /<strong>FDI 36/);
   assert.match(upper, /<details[^>]*><summary>Draft identity &amp; optional correction<\/summary>/);
-  assert.match(upper, /FDI 26 selects the illustrative crown template only/);
+  assert.match(upper, /FDI <span class="num">26<\/span> selects the illustrative crown template only/);
   const lower = render(RestorationPanel, restorationProps([assembly({ ...site().draftIdentity, templateFdi: 46 })]));
   assert.match(lower, /<strong>Lower draft site<\/strong>/);
   const identified = render(RestorationPanel, restorationProps([assembly(null)]));
@@ -175,8 +175,8 @@ test('restoration dimensions are shown in mm at the case scan scale and fall bac
   const item = { ...assembly(), spec: { ...assembly().spec, parameters } };
   assert.match(render(RestorationFloatingEditor, editorProps(item, .1)), /Upper draft · mm · scan scale 0.1 mm\/u[^]*value="1.9"/);
   const panel = render(RestorationPanel, { ...restorationProps([item]), mmPerUnit: .1 });
-  assert.match(panel, /Dimensions are mm at scan scale 0.1 mm\/u/);
-  assert.match(panel, /Radius: 1.9 mm · Length: 10 mm · Platform depth below site surface: 1.5 mm · Apical taper fraction: 0.3 fraction/);
+  assert.match(panel.replace(/<[^>]+>/g, ''), /Dimensions are mm at scan scale 0.1 mm\/u/);
+  assert.match(panel.replace(/<[^>]+>/g, ''), /Radius: 1.9 mm · Length: 10 mm · Platform depth below site surface: 1.5 mm · Apical taper fraction: 0.3 fraction/);
   // Without a scale, nothing is presented as millimetres.
   const unscaled = render(Dimensions, { component: 'fixture', parameters, disabled: false, editing: true, compact: true, onApply: noop, mmPerUnit: null });
   assert.match(unscaled, /Radius <small>u<\/small>[^]*?value="19"/);

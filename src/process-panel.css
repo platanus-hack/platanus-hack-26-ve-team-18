@@ -39,6 +39,7 @@
 .process-panel__scan-count {
   color: var(--process-muted);
   font-size: 11px;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
@@ -137,7 +138,7 @@
   background: #fff;
   color: #718198;
   font-size: 10px;
-  font-weight: 550;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
@@ -178,7 +179,7 @@
 .process-panel__source { color: #536b86; font-size: 10px; font-weight: 550; }
 .process-panel__metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 10px !important; }
 .process-panel__metrics > div { display: flex; flex-direction: column; }
-.process-panel__metrics dd { color: #294c7d; font-size: 24px; font-weight: 550; font-variant-numeric: tabular-nums; letter-spacing: -.7px; line-height: 1.2; }
+.process-panel__metrics dd { color: #294c7d; font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.7px; line-height: 1.2; }
 .process-panel__metrics dt { order: 1; margin-top: 4px; color: #617187; font-size: 10px; }
 
 .process-panel__issues {

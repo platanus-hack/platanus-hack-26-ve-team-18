@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: cenflow-ph
+    runtime: docker
+    repo: https://github.com/Doble-2/platanus-hack-p2
+    branch: main
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5-5
+      - key: ANTHROPIC_TOOTH_MODEL
+        value: claude-haiku-5-5
+      - key: ANTHROPIC_PLANNING_MODEL
+        value: claude-haiku-5-5
+      - key: ANTHROPIC_API_KEY
+        sync: false

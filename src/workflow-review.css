@@ -8,7 +8,7 @@
 .workflow-exception-actions button, .workflow-exception-actions select { padding: 7px 9px; min-height: 34px; }
 .workflow-space { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-variant-numeric: tabular-nums; margin: 12px 0; }
 .workflow-space dt { font-size: 11px; color: #475569; }
-.workflow-space dd { margin: 4px 0 0; font-weight: 500; }
+.workflow-space dd { margin: 4px 0 0; font-weight: 650; }
 .workflow-setting { display: grid; gap: 6px; margin: 12px 0; font-size: 13px; }
 .workflow-setting output { font-variant-numeric: tabular-nums; }
 .workflow-setting input:not([type=range]) { min-height: 34px; border: 1px solid #cbd5e1; padding: 6px 8px; border-radius: 5px; }

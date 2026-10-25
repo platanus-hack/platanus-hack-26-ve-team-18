@@ -143,7 +143,7 @@ test('case IDs never relabel or select independently detected candidates, includ
     const detected = html.match(/<details class="auto-teeth-proposals"[\s\S]*?<\/details>/)?.[0] ?? '';
     assert.match(detected, /<strong>FDI 18<\/strong><span>Mapping reviewed · clinical record unchanged<\/span>/);
     assert.doesNotMatch(detected, /Case region|<strong>FDI 27|value="27" selected|Whole-crown geometry/);
-    assert.match(detected, /<option value="18" selected="">FDI 18<\/option>/);
+    assert.match(detected, /<option value="18" selected="">FDI (?:<span class="num">)?18(?:<\/span>)?<\/option>/);
     assert.deepEqual(calls, []);
     button(tree, 'Inspect case region C41').props.onClick();
     assert.deepEqual(calls, [['case-inspect', 41]]);
