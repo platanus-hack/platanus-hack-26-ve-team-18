@@ -3,7 +3,7 @@ services:
     name: platanus-p2
     runtime: docker
     repo: https://github.com/Doble-2/platanus-hack-p2
-    branch: main
+    branch: develop
     plan: free
     region: oregon
     dockerfilePath: ./Dockerfile
