@@ -5,3 +5,5 @@ dist/
 !.env.example
 .DS_Store
 /work/dental-skill-evaluation/
+playwright-report/
+test-results/

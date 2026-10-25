@@ -42,6 +42,7 @@ import { toothCounts } from './teeth';
 import { ProcessPanel } from './ProcessPanel';
 import { describeProcess } from './guided-process';
 import { useDraftReview } from './useDraftReview';
+import { PatientView } from './PatientView';
 
 const count = (value: number) => value.toLocaleString();
 const number = (value: number) => Number.isFinite(value) ? new Intl.NumberFormat('en', { maximumFractionDigits: 4 }).format(value) : '—';
@@ -95,6 +96,19 @@ export function App() {
   const [focusedSiteId, setFocusedSiteId] = useState<string | null>(null);
   const [assessmentHistory, setAssessmentHistory] = useState<CasePlanningResult[]>([]);
   const [biteReviewed, setBiteReviewed] = useState(false);
+  const [viewMode, setViewMode] = useState<'clinical' | 'patient'>(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.hash === '#patient') return 'patient';
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view') === 'patient') return 'patient';
+    }
+    return 'clinical';
+  });
+  useEffect(() => {
+    const onHash = () => setViewMode(window.location.hash === '#patient' ? 'patient' : 'clinical');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const workflowToken = useRef(0);
   const workflowDeadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const timedPreparation = useRef('');
@@ -679,10 +693,30 @@ export function App() {
   const selectPlanningModel = (model: string) => { if (!modelLocked) planning.setModel(model); };
   const reviewDisplay = planning.result && currentRun?.status !== 'stale' && aiReview.status !== 'stale' ? aiReview.result ? { text: aiReview.result.text, model: aiReview.result.model } : savedReview?.status === 'complete' ? { text: savedReview.detail, model: 'Saved AI review' } : undefined : undefined;
 
+  if (viewMode === 'patient') {
+    return (
+      <div className="app">
+        <PatientView
+          parts={viewportParts}
+          referenceParts={referenceParts}
+          opacities={sceneOpacities}
+          toothData={tooth.data}
+          assemblies={restorations.assemblies}
+          selectedFdi={tooth.selectedTooth}
+          onSelectTooth={code => tooth.select(code)}
+          onClose={() => {
+            setViewMode('clinical');
+            if (typeof window !== 'undefined') window.location.hash = '';
+          }}
+        />
+      </div>
+    );
+  }
+
   return <div className="app" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true); } }} onDragOver={drag} onDragLeave={event => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); void load(Array.from(event.dataTransfer.files)); }}>
     <header className="app-header">
       <div className="brand"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span><span>Platanus <span className="brand-divider">/</span> <strong>Implant planning</strong></span><span className="version">v2</span></div>
-      <div className="header-actions"><button aria-expanded={tomographyOpen} onClick={openTomography}>CBCT{tomography.volume && <span className="badge">Loaded</span>}</button><button aria-expanded={scansOpen} aria-controls="scan-manager" onClick={() => setScansOpen(value => !value)}><Glyph kind="file" />Files{parts.length > 0 && <span className="badge">{parts.length}</span>}</button><button className="primary" disabled={importing || aligning || tooth.busy || assessing || restorations.busy} onClick={() => input.current?.click()}>{importing ? <span className="spinner" /> : <Glyph kind="add" />}{importing ? 'Reading files…' : 'Add files'}</button></div>
+      <div className="header-actions"><button className="patient-mode-toggle" onClick={() => { setViewMode('patient'); if (typeof window !== 'undefined') window.location.hash = 'patient'; }}>👤 Vista Paciente</button><button aria-expanded={tomographyOpen} onClick={openTomography}>CBCT{tomography.volume && <span className="badge">Loaded</span>}</button><button aria-expanded={scansOpen} aria-controls="scan-manager" onClick={() => setScansOpen(value => !value)}><Glyph kind="file" />Files{parts.length > 0 && <span className="badge">{parts.length}</span>}</button><button className="primary" disabled={importing || aligning || tooth.busy || assessing || restorations.busy} onClick={() => input.current?.click()}>{importing ? <span className="spinner" /> : <Glyph kind="add" />}{importing ? 'Reading files…' : 'Add files'}</button></div>
       <input ref={input} type="file" accept=".stl,.obj,.ply,.mtl,.jpg,.jpeg,.png,.dcm,.dicom" multiple hidden aria-label="Import 3D files" onChange={event => void load(Array.from(event.target.files ?? []))} />
       <input ref={textureInput} type="file" accept=".jpg,.jpeg,.png" hidden aria-label="Attach scan texture" onChange={event => { const file = event.target.files?.[0]; if (file && active) void applyTexture(active, file); event.target.value = ''; }} />
       <input ref={sessionInput} type="file" accept=".json,application/json" hidden aria-label="Reopen case session" onChange={event => { const file = event.target.files?.[0]; if (file) void reopenSession(file); event.target.value = ''; }} />

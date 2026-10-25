@@ -1,0 +1,558 @@
+/* Patient Consultation View — Platanus Dental */
+
+.patient-container {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 76px);
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.patient-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.patient-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.patient-title-group h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.4px;
+}
+
+.patient-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.patient-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.patient-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.patient-btn-outline {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+
+.patient-btn-outline:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.patient-btn-whatsapp {
+  background: #25d366;
+  color: #ffffff;
+  border: 1px solid #20ba5a;
+}
+
+.patient-btn-whatsapp:hover {
+  background: #1eb857;
+}
+
+/* Main Grid Layout */
+.patient-content-grid {
+  display: grid;
+  grid-template-columns: minmax(400px, 1.25fr) minmax(360px, 1fr);
+  gap: 24px;
+  padding: 24px 28px;
+  flex: 1;
+}
+
+@media (max-width: 1024px) {
+  .patient-content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 3D Scene Viewport Box */
+.patient-stage-card {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #ffffff;
+}
+
+.stage-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stage-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stage-viewport-wrapper {
+  position: relative;
+  height: 520px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+
+.stage-viewport-wrapper .viewport {
+  height: 100% !important;
+  min-height: 100% !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+.stage-hint-badge {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 20px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Layer Visibility Toggles */
+.stage-layers-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: #fafafa;
+  border-top: 1px solid #f1f5f9;
+  font-size: 12px;
+  color: #475569;
+}
+
+.layer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.layer-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.layer-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.layer-swatch.teeth { background: #88c2b0; }
+.layer-swatch.crown { background: #f0deba; border: 1px solid #d4c19c; }
+.layer-swatch.implant { background: #94a3b8; }
+.layer-swatch.bone { background: #e2dacd; }
+
+/* Right Consultation Details Panel */
+.patient-details-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.consult-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.consult-card h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Odontogram Styles */
+.odontogram-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.odontogram-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.odontogram-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.odontogram-badge {
+  font-size: 11px;
+  font-weight: 600;
+  background: #e0f2fe;
+  color: #0284c7;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.odontogram-legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.present { background: #10b981; }
+.dot.missing { background: #f59e0b; }
+.dot.planned { background: #6366f1; }
+
+.odontogram-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.arch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #f1f5f9;
+}
+
+.arch-indicator,
+.arch-side-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  width: 24px;
+  text-align: center;
+  user-select: none;
+}
+
+.teeth-list {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 2px;
+}
+
+.tooth-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 2px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 26px;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.tooth-btn:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+  transform: translateY(-1px);
+}
+
+.tooth-btn.selected {
+  background: #eef2ff !important;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+.tooth-fdi-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #475569;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.tooth-svg {
+  width: 14px;
+  height: 16px;
+  fill: #e2e8f0;
+  stroke: #94a3b8;
+  stroke-width: 1.5;
+}
+
+.status-present .tooth-svg {
+  fill: #d1fae5;
+  stroke: #10b981;
+}
+
+.status-missing .tooth-svg {
+  fill: #fef3c7;
+  stroke: #f59e0b;
+}
+
+.status-planned .tooth-svg {
+  fill: #e0e7ff;
+  stroke: #6366f1;
+}
+
+.tooth-groove {
+  fill: none;
+  stroke: inherit;
+  stroke-width: 1;
+}
+
+.plan-marker {
+  fill: #6366f1;
+  stroke: #ffffff;
+  stroke-width: 1;
+}
+
+.midline-right {
+  margin-right: 6px;
+}
+
+/* Selected Tooth Detail Box */
+.tooth-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.detail-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.tooth-name-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.tooth-status-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.tooth-status-pill.planned {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.tooth-status-pill.present {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.tooth-status-pill.missing {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.procedure-summary-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.procedure-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spec-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  font-size: 12px;
+}
+
+.spec-item {
+  background: #ffffff;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.spec-item dt {
+  color: #64748b;
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.spec-item dd {
+  font-weight: 700;
+  color: #1e293b;
+  margin-top: 2px;
+}
+
+/* Treatment Timeline */
+.treatment-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.timeline-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.timeline-step.completed .step-num {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.timeline-step.current .step-num {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.step-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.step-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* Clinic Contact Box */
+.clinic-contact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%);
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.clinic-contact-card h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #065f46;
+  margin: 0;
+}
+
+.clinic-contact-card p {
+  font-size: 12px;
+  color: #166534;
+  margin: 0;
+  line-height: 1.5;
+}
