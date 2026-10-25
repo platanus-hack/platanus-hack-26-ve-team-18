@@ -85,8 +85,18 @@ function freshGuardrails(assembly) {
 
 function staleGuardrails(quality, marker) {
   quality.guardrails = copy(quality.guardrails);
+  const comp = quality.guardrails.componentExtents[0].component;
   quality.guardrails.componentExtents[0].extents.mesiodistal += 100;
-  quality.guardrails.issues.find(issue => issue.id === 'subcrestal-placement').target.value = 99;
+  const dims = quality.guardrails.issues.find(issue => issue.id === 'dimensions');
+  if (dims?.actual && typeof dims.actual[`${comp}.mesiodistal`] === 'number') {
+    dims.actual[`${comp}.mesiodistal`] += 100;
+  }
+  const subcrestal = quality.guardrails.issues.find(issue => issue.id === 'subcrestal-placement');
+  if (subcrestal) {
+    subcrestal.target.value = 99;
+    subcrestal.target.units = 'mm';
+    subcrestal.target.provenance = 'unconfirmed-case-feedback';
+  }
   quality.guardrails.limits = [marker];
 }
 
