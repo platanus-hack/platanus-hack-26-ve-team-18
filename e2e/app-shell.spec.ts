@@ -9,7 +9,7 @@ test.describe('App Shell & Navigation', () => {
     await expect(page.locator('.brand')).toContainText('Implant planning');
 
     // Check main actions
-    await expect(page.locator('.patient-mode-toggle')).toBeVisible();
+    await expect(page.locator('.patient-mode-toggle')).toHaveCount(0);
     await expect(page.locator('button:has-text("Add files")')).toBeVisible();
     await expect(page.locator('.header-actions button:has-text("CBCT")')).toBeVisible();
 
@@ -17,11 +17,9 @@ test.describe('App Shell & Navigation', () => {
     await expect(page.locator('.canvas-host canvas')).toBeVisible();
   });
 
-  test('switches from clinical planning to patient view and back', async ({ page }) => {
-    await page.goto('/');
-
-    // Click Vista Paciente
-    await page.click('.patient-mode-toggle');
+  test('navigates to patient view via URL and back to doctor workspace', async ({ page }) => {
+    // Patient view is accessible strictly via URL hash (#patient) or query param
+    await page.goto('/#patient');
 
     // Verify Patient Medical Sheet mounted
     await expect(page.locator('.patient-shell')).toBeVisible();
@@ -33,6 +31,6 @@ test.describe('App Shell & Navigation', () => {
 
     // Verify returned to Clinical Planning
     await expect(page.locator('.workspace')).toBeVisible();
-    await expect(page.locator('.patient-mode-toggle')).toBeVisible();
+    await expect(page.locator('.patient-mode-toggle')).toHaveCount(0);
   });
 });
