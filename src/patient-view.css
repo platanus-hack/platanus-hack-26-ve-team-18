@@ -1,0 +1,689 @@
+/* Patient Medical Sheet (/p/:token o /#patient) — Styled with Doctor's Clinical Design System */
+
+:root {
+  --pat-paper: #ffffff;
+  --pat-bg: #f6f8fb; /* Doctor view background (--color-paper) */
+  --pat-border: #e0e6ef; /* Doctor card & header borders */
+  --pat-border-subtle: #dbe4f1;
+  --pat-blue: #285ec7; /* Doctor signature blue (--color-blue) */
+  --pat-blue-hover: #214fa9;
+  --pat-blue-light: #f0f5fe;
+  --pat-blue-subtle: #f8fbff;
+  --pat-blue-border: #ccdcf5;
+  --pat-ink: #223449; /* Doctor dark navy text (--color-ink) */
+  --pat-muted: #617187; /* Doctor muted text */
+  --pat-viewport-bg: #eef3f9; /* Doctor 3D viewport canvas background */
+  --pat-viewport-dot: #a3b6cd;
+  --pat-orange: #d49a32; /* Doctor warning / near indicator */
+  --pat-contact: #d84d45; /* Doctor contact indicator */
+}
+
+.patient-medical-page {
+  min-height: 100vh;
+  background: var(--pat-bg);
+  color: var(--pat-ink);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Nav Bar (Top bar matching Doctor App Header) */
+.patient-nav-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: #ffffff;
+  border-bottom: 1px solid var(--pat-border);
+  padding: 12px 20px;
+}
+
+.patient-nav-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.patient-brand-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--pat-blue);
+}
+
+.brand-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--pat-blue);
+}
+
+.patient-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-patient-ghost {
+  border: 1px solid #d9e1ec;
+  background: #ffffff;
+  color: #34475d;
+  font-size: 11.5px;
+  font-weight: 550;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-patient-ghost:hover {
+  background: #f1f5fc;
+  border-color: #8da9d3;
+}
+
+.btn-patient-doctor {
+  border: 1px solid var(--pat-blue);
+  background: var(--pat-blue);
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 550;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-patient-doctor:hover {
+  background: var(--pat-blue-hover);
+  border-color: var(--pat-blue-hover);
+}
+
+/* Medical Report Shell (Hoja Médica) */
+.patient-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Header */
+.patient-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 2px 2px;
+}
+
+.patient-brand {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pat-blue);
+}
+
+.patient-header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--pat-ink);
+  letter-spacing: -0.4px;
+}
+
+.patient-header p {
+  margin: 0;
+  color: var(--pat-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Cards (matching Doctor view .results and panels) */
+.patient-card {
+  background: var(--pat-paper);
+  border: 1px solid var(--pat-border);
+  border-radius: 9px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(34, 52, 73, 0.03);
+}
+
+.patient-card h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--pat-ink);
+  letter-spacing: -0.2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-icon {
+  font-size: 15px;
+}
+
+.patient-note {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: #34475d;
+  white-space: pre-wrap;
+}
+
+.patient-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--pat-muted);
+  line-height: 1.5;
+}
+
+/* Photos Grid */
+.patient-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.patient-photos figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.patient-photos img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--pat-border);
+  background: var(--pat-viewport-bg);
+}
+
+.patient-photos figcaption {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pat-muted);
+  text-align: center;
+}
+
+/* Odontogram */
+.odontogram-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.odontogram-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.odontogram-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 650;
+  color: var(--pat-ink);
+}
+
+.odontogram-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--pat-blue-light);
+  color: var(--pat-blue);
+  border: 1px solid var(--pat-blue-border);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.odontogram-legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--pat-muted);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.present { background: var(--pat-blue); }
+.dot.missing { background: var(--pat-orange); }
+.dot.planned { background: var(--pat-contact); }
+
+.odontogram-scroll-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0;
+}
+
+.odontogram-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 480px;
+}
+
+.arch-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--pat-blue-light);
+  border: 1px solid var(--pat-blue-border);
+  padding: 6px 8px;
+  border-radius: 7px;
+}
+
+.arch-indicator,
+.arch-side-label {
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--pat-blue);
+  width: 20px;
+  text-align: center;
+}
+
+.teeth-list {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 2px;
+}
+
+.tooth-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 1px;
+  background: #ffffff;
+  border: 1px solid #d9e1ec;
+  border-radius: 5px;
+  cursor: pointer;
+  min-width: 24px;
+  flex: 1;
+  transition: all 0.15s ease;
+}
+
+.tooth-btn:hover {
+  border-color: #8da9d3;
+  background: #f1f5fc;
+}
+
+.tooth-btn.selected {
+  background: #e6effd !important;
+  border-color: var(--pat-blue) !important;
+  box-shadow: 0 0 0 2px rgba(40, 94, 199, 0.25);
+}
+
+.tooth-fdi-label {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--pat-muted);
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.tooth-svg {
+  width: 14px;
+  height: 16px;
+  fill: #edf2f9;
+  stroke: #b5c7dc;
+  stroke-width: 1.2;
+}
+
+.status-present .tooth-svg {
+  fill: #e8f0fc;
+  stroke: var(--pat-blue);
+}
+
+.status-missing .tooth-svg {
+  fill: #fdf3e7;
+  stroke: var(--pat-orange);
+  stroke-dasharray: 2 1;
+}
+
+.status-planned .tooth-svg {
+  fill: #fdf0ef;
+  stroke: var(--pat-contact);
+}
+
+.status-third-molar .tooth-svg {
+  fill: #f4f6fa;
+  stroke: #cbd5e1;
+}
+
+.tooth-groove {
+  fill: none;
+  stroke: inherit;
+  stroke-width: 0.8;
+}
+
+.plan-marker {
+  fill: var(--pat-blue);
+  stroke: #ffffff;
+  stroke-width: 1;
+}
+
+.midline-right {
+  margin-right: 5px;
+}
+
+/* Tooth Detail in Odontogram */
+.tooth-detail {
+  border-top: 1px solid var(--pat-border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tooth-detail strong {
+  font-size: 13.5px;
+  color: var(--pat-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-chip {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 7px;
+  text-transform: uppercase;
+}
+
+.status-chip.planned {
+  background: #fdf0ef;
+  color: var(--pat-contact);
+  border: 1px solid #f9cdca;
+}
+
+.status-chip.present {
+  background: var(--pat-blue-light);
+  color: var(--pat-blue);
+  border: 1px solid var(--pat-blue-border);
+}
+
+.status-chip.missing {
+  background: #fdf3e7;
+  color: #a16207;
+  border: 1px solid #fde68a;
+}
+
+.tooth-quote {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  border-left: 3px solid var(--pat-blue);
+  background: var(--pat-blue-subtle);
+  padding: 10px 12px;
+  border-radius: 0 6px 6px 0;
+  color: #34475d;
+}
+
+/* 3D Viewport Box inside Card (Matching Doctor Viewport styling) */
+.patient-3d-card {
+  padding-bottom: 16px;
+}
+
+.patient-viewport-box {
+  position: relative;
+  height: 420px;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid #dce4ee;
+  background: var(--pat-viewport-bg);
+}
+
+.patient-viewport-box::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(#a3b6cd 0.65px, transparent 0.65px);
+  background-size: 22px 22px;
+  opacity: 0.35;
+}
+
+.patient-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(246, 248, 251, 0.85);
+  backdrop-filter: blur(4px);
+  color: #34475d;
+  font-size: 12.5px;
+  font-weight: 600;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.patient-viewport-box .viewport {
+  height: 100% !important;
+  min-height: 100% !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.patient-layers-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 2px 0;
+  font-size: 11.5px;
+  color: var(--pat-muted);
+}
+
+.layer-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.layer-item input[type='checkbox'] {
+  accent-color: var(--pat-blue);
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.swatch.arch { background: #6688b6; }
+.swatch.crown { background: #f0deba; border: 1px solid #d4c19c; }
+.swatch.implant { background: #94a3b8; }
+
+/* Plan List */
+.plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plan-list > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--pat-blue-subtle);
+  border: 1px solid #e0eaf6;
+  border-radius: 7px;
+}
+
+.plan-list strong {
+  font-size: 13px;
+  color: var(--pat-ink);
+}
+
+.plan-list small {
+  color: var(--pat-muted);
+  font-size: 11.5px;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .plan-list > div {
+    flex-direction: column;
+    gap: 3px;
+  }
+  .plan-list small {
+    text-align: left;
+  }
+}
+
+/* Timeline */
+.timeline-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.step-circle {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.timeline-item.done .step-circle {
+  background: var(--pat-blue);
+  color: #ffffff;
+}
+
+.timeline-item.current .step-circle {
+  background: var(--pat-blue);
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(40, 94, 199, 0.2);
+}
+
+.timeline-item strong {
+  font-size: 13px;
+  color: var(--pat-ink);
+  display: block;
+}
+
+.timeline-item p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--pat-muted);
+  line-height: 1.45;
+}
+
+/* WhatsApp Card (Clean clinical card with prominent button) */
+.whatsapp-card {
+  background: var(--pat-blue-subtle);
+  border: 1px solid var(--pat-blue-border);
+  gap: 12px;
+}
+
+.whatsapp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #25d366;
+  color: #ffffff;
+  padding: 9px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12.5px;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(37, 211, 102, 0.25);
+  transition: all 0.15s ease;
+  align-self: flex-start;
+}
+
+.whatsapp-btn:hover {
+  background: #20ba5a;
+  transform: translateY(-1px);
+}
+
+/* Footer */
+.patient-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  color: var(--pat-muted);
+  font-size: 11.5px;
+  padding-top: 10px;
+}
+
+.btn-link {
+  background: transparent;
+  border: none;
+  color: var(--pat-blue);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  font-size: 11.5px;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .patient-shell {
+    padding: 16px 12px 48px;
+    gap: 12px;
+  }
+  .patient-card {
+    padding: 15px;
+    border-radius: 8px;
+  }
+  .patient-header h1 {
+    font-size: 21px;
+  }
+  .patient-viewport-box {
+    height: 330px;
+  }
+}

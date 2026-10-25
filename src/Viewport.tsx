@@ -14,12 +14,12 @@ interface Props {
   onCaptureReady?: (capture: (() => ViewerCapture) | null) => void;
   onViewerReady?: (actions: ViewerActions | null) => void;
   onNavigationModeChange?: (mode: NavigationMode) => void;
-  upAxis: 'y' | 'z';
-  onUpAxisChange: (axis: 'y' | 'z') => void;
-  showAnnotations: boolean;
-  onShowAnnotationsChange: (value: boolean) => void;
-  expanded: boolean;
-  onExpandedChange: (value: boolean) => void;
+  upAxis?: 'y' | 'z';
+  onUpAxisChange?: (axis: 'y' | 'z') => void;
+  showAnnotations?: boolean;
+  onShowAnnotationsChange?: (value: boolean) => void;
+  expanded?: boolean;
+  onExpandedChange?: (value: boolean) => void;
   dock?: ReactNode;
   report: CollisionReport | null;
   tolerance: number;
@@ -34,7 +34,7 @@ interface Props {
   onExitToothTool?: () => void;
 }
 
-export function Viewport({ compact = false, parts, referenceParts, framingRevision = 0, onCaptureReady, onViewerReady, onNavigationModeChange, upAxis, onUpAxisChange, showAnnotations, onShowAnnotationsChange, expanded, onExpandedChange, dock, report, tolerance, selected, heatmap, wireframe, opacities, onProbe, onImport, toothView, onToothEdit, onExitToothTool }: Props) {
+export function Viewport({ compact = false, parts, referenceParts, framingRevision = 0, onCaptureReady, onViewerReady, onNavigationModeChange, upAxis: upAxisProp, onUpAxisChange, showAnnotations: showAnnotationsProp, onShowAnnotationsChange, expanded: expandedProp, onExpandedChange, dock, report, tolerance, selected, heatmap, wireframe, opacities, onProbe, onImport, toothView, onToothEdit, onExitToothTool }: Props) {
   const displayedParts = useMemo(() => referenceParts?.length ? [...parts, ...referenceParts] : parts, [parts, referenceParts]);
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<MeshViewer | null>(null);
@@ -53,6 +53,17 @@ export function Viewport({ compact = false, parts, referenceParts, framingRevisi
     navigationModeCallback.current?.(mode);
   };
   const navigationMode = navigationModeState;
+  // Presentation controls are liftable: hosts that omit them (the patient
+  // portal) keep the viewport's own local state instead.
+  const [upAxisState, setUpAxisState] = useState<'y' | 'z'>('z');
+  const [expandedState, setExpandedState] = useState(false);
+  const [annotationsState, setAnnotationsState] = useState(true);
+  const upAxis = upAxisProp ?? upAxisState;
+  const expanded = expandedProp ?? expandedState;
+  const showAnnotations = showAnnotationsProp ?? annotationsState;
+  const changeUpAxis = onUpAxisChange ?? setUpAxisState;
+  const changeExpanded = onExpandedChange ?? setExpandedState;
+  const changeShowAnnotations = onShowAnnotationsChange ?? setAnnotationsState;
   // Inspection appearance is local presentation state. Editing always restores
   // its labels/patches; hiding them never changes collision evidence or geometry.
   const editing = !!toothView?.enabled && toothView.tool !== 'inspect';
@@ -63,10 +74,10 @@ export function Viewport({ compact = false, parts, referenceParts, framingRevisi
     if (!expanded) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onExpandedChange(false); };
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') changeExpanded(false); };
     window.addEventListener('keydown', close);
     return () => { document.body.style.overflow = previous; window.removeEventListener('keydown', close); };
-  }, [expanded, onExpandedChange]);
+  }, [expanded, changeExpanded]);
 
   useEffect(() => {
     setError(''); setReady(false);
@@ -121,14 +132,14 @@ export function Viewport({ compact = false, parts, referenceParts, framingRevisi
 
   const cameraTools = (
       <div className="camera-tools">
-        {toothView?.enabled && <div className="view-buttons"><button disabled={editing} aria-pressed={showAnnotations || editing} onClick={() => onShowAnnotationsChange(!showAnnotations)} title="Show or hide tooth labels and site patches. Collision colors are controlled separately.">{showAnnotations || editing ? 'Hide annotations' : 'Show annotations'}</button></div>}
-        <div className="view-buttons"><button aria-pressed={expanded} onClick={() => onExpandedChange(!expanded)} title={expanded ? 'Return to the planning workspace (Esc)' : 'Use the window for the 3D model'}>{expanded ? 'Exit expanded view' : 'Expand viewer'}</button></div>
+        {toothView?.enabled && <div className="view-buttons"><button disabled={editing} aria-pressed={showAnnotations || editing} onClick={() => changeShowAnnotations(!showAnnotations)} title="Show or hide tooth labels and site patches. Collision colors are controlled separately.">{showAnnotations || editing ? 'Hide annotations' : 'Show annotations'}</button></div>}
+        <div className="view-buttons"><button aria-pressed={expanded} onClick={() => changeExpanded(!expanded)} title={expanded ? 'Return to the planning workspace (Esc)' : 'Use the window for the 3D model'}>{expanded ? 'Exit expanded view' : 'Expand viewer'}</button></div>
         <div className="view-buttons navigation-mode" role="group" aria-label="Navigation mode">
           <button disabled={!ready || !!error} aria-pressed={navigationMode === 'orbit'} onClick={() => { if (editing) onExitToothTool?.(); cameraAction(meshViewer => meshViewer.setNavigationMode('orbit')); }} title="Drag or use one finger to orbit; right-drag or Shift+drag to pan">Orbit</button>
           <button disabled={!ready || !!error} aria-pressed={navigationMode === 'pan'} onClick={() => { if (editing) onExitToothTool?.(); cameraAction(meshViewer => meshViewer.setNavigationMode('pan')); }} title="Drag or use one finger to pan">Pan</button>
         </div>
         <div className="view-buttons camera-views" role="group" aria-label="Camera views">
-          <select aria-label="View up axis" title="Camera up axis; file coordinates stay unchanged" disabled={!ready || !!error} value={upAxis} onChange={event => onUpAxisChange(event.target.value as 'y' | 'z')}><option value="z">Z up</option><option value="y">Y up</option></select>
+          <select aria-label="View up axis" title="Camera up axis; file coordinates stay unchanged" disabled={!ready || !!error} value={upAxis} onChange={event => changeUpAxis(event.target.value as 'y' | 'z')}><option value="z">Z up</option><option value="y">Y up</option></select>
           {(['perspective', 'front', 'top', 'right'] as View[]).map(view => <button key={view} disabled={cameraDisabled} onClick={() => cameraAction(meshViewer => meshViewer.setView(view))}>{view === 'perspective' ? '3D' : view[0].toUpperCase() + view.slice(1)}</button>)}
         </div>
         <div className="view-buttons camera-actions" role="group" aria-label="Camera framing">
