@@ -1,0 +1,316 @@
+import type { Vec3 } from './models';
+import type { RestorationComponentKind, RestorationMesh, RestorationReferencePlanes, RestorationSpec } from './restoration-types';
+import { buildCrownMesh, cloneShape, templateShape, validateCrownShape } from './crown-anatomy.ts';
+import { restorationQualityContextSchema } from './restoration-quality-schema.ts';
+
+// Pure planning geometry. No source mesh, physical-unit conversion, fitting,
+// manufacturer interface, thread, screw channel, or surgical inference.
+const SEGMENTS = 64;
+const TAU = Math.PI * 2;
+const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const minus = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+
+function finite(value: number, name: string, min = -Infinity, max = Infinity) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${name} must be finite in [${min}, ${max}].`);
+  }
+}
+
+function positive(value: number, name: string) {
+  finite(value, name);
+  if (!(value > 0)) throw new Error(`${name} must be positive, in file units.`);
+}
+
+export function validateRestorationSpec(spec: RestorationSpec) {
+  if (!spec || spec.version !== 'implant-assembly/v1') throw new Error('Expected implant-assembly/v1 spec.');
+  if (!Number.isInteger(spec.fdi) || !/^[1-4][1-8]$/.test(String(spec.fdi))) throw new Error('FDI must identify a permanent tooth.');
+  for (const key of ['parentPartId', 'source'] as const) {
+    if (typeof spec[key] !== 'string' || !spec[key].trim() || spec[key].length > (key === 'source' ? 4000 : 200)) throw new Error(`${key} must be a bounded nonempty string.`);
+  }
+  if (!['hypothesized', 'clinician-entered'].includes(spec.provenance)) throw new Error('Unknown concept provenance.');
+  if (spec.units !== 'file units (u)') throw new Error('Dimensions must use file units (u); no physical scale is inferred.');
+  if (!['incisor', 'canine', 'premolar', 'molar'].includes(spec.anatomy)) throw new Error('Unknown crown anatomical class.');
+  const keys = (value: object, allowed: string[], name: string) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !allowed.includes(key))) throw new Error(`Unknown or invalid ${name} fields.`);
+  };
+  keys(spec, ['version', 'fdi', 'parentPartId', 'draftIdentity', 'frame', 'parameters', 'anatomy', 'contour', 'appearance', 'editProvenance', 'crownShape', 'qualityContext', 'anatomicalSigns', 'provenance', 'units', 'source', 'siteEvidence'], 'restoration spec');
+  if (spec.contour !== undefined) {
+    keys(spec.contour, ['cervicalScale', 'occlusalScale'], 'contour');
+    for (const [key, value] of Object.entries(spec.contour)) finite(value, key, 0.5, 1.5);
+  }
+  if (spec.appearance !== undefined) {
+    keys(spec.appearance, ['fixture', 'abutment', 'crown'], 'appearance');
+    for (const appearance of Object.values(spec.appearance)) {
+      keys(appearance, ['color', 'roughness'], 'component appearance');
+      if (appearance.color !== undefined && (typeof appearance.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(appearance.color))) throw new Error('Display color must be a six-digit hex color; it is not a dental shade match.');
+      if (appearance.roughness !== undefined) finite(appearance.roughness, 'Display roughness', 0, 1);
+    }
+  }
+  if (spec.editProvenance !== undefined) {
+    keys(spec.editProvenance, ['actor', 'reason'], 'edit provenance');
+    if (!['manual', 'agent'].includes(spec.editProvenance.actor) || typeof spec.editProvenance.reason !== 'string' || !spec.editProvenance.reason.trim() || spec.editProvenance.reason.length > 500) throw new Error('Edit provenance needs a known actor and a reason of at most 500 characters.');
+    if (spec.provenance !== (spec.editProvenance.actor === 'agent' ? 'hypothesized' : 'clinician-entered')) throw new Error('Edit actor and concept provenance must agree.');
+  }
+  if (spec.qualityContext !== undefined) restorationQualityContextSchema.parse(spec.qualityContext);
+  if (spec.draftIdentity !== undefined) {
+    const draft = spec.draftIdentity;
+    keys(draft, ['siteId', 'templateFdi', 'alternatives', 'basis'], 'draft identity');
+    if (typeof draft.siteId !== 'string' || !draft.siteId.trim() || draft.siteId.length > 200 || !/^[1-4][1-8]$/.test(String(draft.templateFdi)) || !Array.isArray(draft.alternatives) || draft.alternatives.length > 32 || draft.alternatives.some(fdi => !Number.isInteger(fdi) || !/^[1-4][1-8]$/.test(String(fdi))) || typeof draft.basis !== 'string' || draft.basis.length > 4000) throw new Error('Invalid draft site identity.');
+  }
+  if (spec.siteEvidence !== undefined) {
+    const evidence = spec.siteEvidence;
+    keys(evidence, ['method', 'partIds', 'fdis', 'surface', 'bounds', 'slot'], 'site evidence');
+    keys(evidence.surface, ['partId', 'face', 'point'], 'surface anchor');
+    if (!['reviewed-surface', 'bounded-gap'].includes(evidence.method) || !Array.isArray(evidence.partIds) || !evidence.partIds.length || evidence.partIds.length > 64 || evidence.partIds.some(id => typeof id !== 'string' || !id.trim() || id.length > 200) || !Array.isArray(evidence.fdis) || evidence.fdis.length > 32 || evidence.fdis.some(fdi => !Number.isInteger(fdi) || !/^[1-4][1-8]$/.test(String(fdi)))) throw new Error('Invalid site evidence dependencies.');
+    const anchor = evidence.surface;
+    if (typeof anchor.partId !== 'string' || !anchor.partId.trim() || anchor.partId.length > 200 || !Number.isSafeInteger(anchor.face) || anchor.face < 0 || !Array.isArray(anchor.point) || anchor.point.length !== 3 || !anchor.point.every(Number.isFinite)) throw new Error('Invalid site evidence surface anchor.');
+    if (evidence.bounds && (!Array.isArray(evidence.bounds) || evidence.bounds.length !== 2 || !evidence.bounds.every(Number.isFinite))) throw new Error('Invalid site bounds.');
+    if (evidence.slot) {
+      keys(evidence.slot, ['index', 'count'], 'site slot');
+      if (!Number.isSafeInteger(evidence.slot.index) || !Number.isSafeInteger(evidence.slot.count) || evidence.slot.index < 0 || evidence.slot.count < 1 || evidence.slot.index >= evidence.slot.count) throw new Error('Invalid site slot.');
+    }
+  }
+  if (spec.crownShape) {
+    validateCrownShape(spec.crownShape);
+    if (spec.crownShape.toothClass !== spec.anatomy) throw new Error('Donor/template tooth class must match the restoration anatomy.');
+    if (spec.crownShape.arch !== (spec.fdi < 30 ? 'upper' : 'lower')) throw new Error('Donor/template arch must match the restoration arch.');
+  }
+  if (spec.anatomicalSigns && (![1, -1].includes(spec.anatomicalSigns.mesial) || ![1, -1].includes(spec.anatomicalSigns.buccal))) throw new Error('Anatomical axis signs must each be +1 or -1.');
+  const frame = spec.frame;
+  keys(frame, ['origin', 'u', 'v', 'up'], 'frame');
+  for (const key of ['origin', 'u', 'v', 'up'] as const) {
+    const vector = frame?.[key];
+    if (!Array.isArray(vector) || vector.length !== 3 || vector.some(value => typeof value !== 'number' || !Number.isFinite(value))) {
+      throw new Error(`frame.${key} must contain three finite coordinates.`);
+    }
+  }
+  const { u, v, up } = frame;
+  const tolerance = 1e-8;
+  if ([u, v, up].some(axis => Math.abs(dot(axis, axis) - 1) > tolerance) ||
+      [dot(u, v), dot(u, up), dot(v, up)].some(value => Math.abs(value) > tolerance) ||
+      Math.abs(dot(cross(u, v), up) - 1) > tolerance) {
+    throw new Error('Source frame must be right-handed and orthonormal (u cross v = up); axes are not normalized automatically.');
+  }
+  const { fixture: f, abutment: a, crown: c } = spec.parameters ?? {};
+  if (!f || !a || !c) throw new Error('Fixture, abutment, and crown parameters are required.');
+  keys(spec.parameters, ['fixture', 'abutment', 'crown'], 'parameters');
+  keys(f, ['radius', 'length', 'depth', 'taper'], 'fixture');
+  keys(a, ['radius', 'height', 'emergenceRadius', 'angleX', 'angleY'], 'abutment');
+  keys(c, ['width', 'depth', 'height', 'cuspHeight', 'rotation'], 'crown');
+  positive(f.radius, 'Fixture radius'); positive(f.length, 'Fixture length');
+  finite(f.depth, 'Fixture depth', 0); finite(f.taper, 'Fixture taper', 0, 0.95);
+  positive(a.radius, 'Abutment radius'); positive(a.height, 'Abutment height'); positive(a.emergenceRadius, 'Abutment emergence radius');
+  // Numerical bounds on the slanted loft, never manufacturer/clinical limits.
+  finite(a.angleX, 'Abutment X angle (degrees)', -80, 80);
+  finite(a.angleY, 'Abutment Y angle (degrees)', -80, 80);
+  positive(c.width, 'Crown width'); positive(c.depth, 'Crown depth'); positive(c.height, 'Crown height');
+  finite(c.cuspHeight, 'Crown cusp height', 0); finite(c.rotation, 'Crown rotation (degrees)', -360, 360);
+  const dimensions = [f.radius * (1 - f.taper), f.length, a.radius, a.height, a.emergenceRadius, c.width, c.depth, c.height];
+  if (Math.max(...dimensions) / Math.min(...dimensions) > 10_000) throw new Error('Component proportions exceed the numerical construction range.');
+}
+
+class Surface {
+  points: Vec3[] = [];
+  faces: number[] = [];
+
+  point(point: Vec3) { this.points.push(point); return this.points.length - 1; }
+
+  ring(point: (angle: number, index: number) => Vec3) {
+    const start = this.points.length;
+    for (let i = 0; i < SEGMENTS; i++) this.point(point(i * TAU / SEGMENTS, i));
+    return start;
+  }
+
+  // Rings run counterclockwise from +up. Bottom -> top, then outer -> inner.
+  connect(bottom: number, top: number) {
+    for (let i = 0; i < SEGMENTS; i++) {
+      const j = (i + 1) % SEGMENTS;
+      this.faces.push(bottom + i, bottom + j, top + i, bottom + j, top + j, top + i);
+    }
+  }
+
+  cap(ring: number, center: Vec3, top: boolean) {
+    const vertex = this.point(center);
+    for (let i = 0; i < SEGMENTS; i++) {
+      const j = (i + 1) % SEGMENTS;
+      this.faces.push(vertex, ring + (top ? i : j), ring + (top ? j : i));
+    }
+  }
+
+  mesh(component: RestorationComponentKind, frame: RestorationSpec['frame']): RestorationMesh {
+    // Round shared vertices ONCE before expansion. Reject collapsed geometry in
+    // the actual Float32 source coordinates instead of silently recentering it.
+    let minimumEdge = Infinity;
+    for (let i = 0; i < this.faces.length; i += 3) for (let edge = 0; edge < 3; edge++) {
+      const a = this.points[this.faces[i + edge]], b = this.points[this.faces[i + (edge + 1) % 3]];
+      minimumEdge = Math.min(minimumEdge, Math.hypot(...minus(a, b)));
+    }
+    const points: Vec3[] = this.points.map(point => {
+      const transform = (axis: number) => {
+        const exact = frame.origin[axis] + frame.u[axis] * point[0] + frame.v[axis] * point[1] + frame.up[axis] * point[2];
+        const rounded = Math.fround(exact);
+        // Edge/winding checks alone cannot detect folded surfaces after partial
+        // precision loss. Bound rounding before emitting any source coordinates.
+        if (!Number.isFinite(exact) || Math.abs(rounded - exact) > minimumEdge * 0.02) throw new Error(`${component}: Float32 precision is insufficient for the local geometric features at this source origin.`);
+        return rounded;
+      };
+      return [transform(0), transform(1), transform(2)];
+    });
+    const positions = new Float32Array(this.faces.length * 3), normals = new Float32Array(positions.length);
+    const low: Vec3 = [Infinity, Infinity, Infinity], high: Vec3 = [-Infinity, -Infinity, -Infinity];
+    const keys = new Set<string>();
+    for (const point of points) {
+      if (!point.every(Number.isFinite)) throw new Error(`${component}: coordinates exceed Float32 range.`);
+      const key = point.join(',');
+      if (keys.has(key)) throw new Error(`${component}: dimensions lose precision at this source origin; no recentering was applied.`);
+      keys.add(key);
+      for (let axis = 0; axis < 3; axis++) { low[axis] = Math.min(low[axis], point[axis]); high[axis] = Math.max(high[axis], point[axis]); }
+    }
+    const edges = new Map<string, { count: number; balance: number }>();
+    const reference = points[0];
+    let signedVolume = 0;
+    for (let i = 0; i < this.faces.length; i += 3) {
+      const ids = this.faces.slice(i, i + 3), [a, b, c] = ids.map(id => points[id]);
+      const normal = cross(minus(b, a), minus(c, a)), area = Math.hypot(...normal);
+      if (!(area > 0) || !Number.isFinite(area)) throw new Error(`${component}: degenerate triangle at the requested dimensions/source coordinates.`);
+      signedVolume += dot(minus(a, reference), cross(minus(b, reference), minus(c, reference))) / 6;
+      for (let corner = 0; corner < 3; corner++) {
+        positions.set(points[ids[corner]], (i + corner) * 3);
+        normals.set(normal.map(value => value / area), (i + corner) * 3);
+        const from = ids[corner], to = ids[(corner + 1) % 3], key = `${Math.min(from, to)},${Math.max(from, to)}`;
+        const edge = edges.get(key) ?? { count: 0, balance: 0 };
+        edge.count++; edge.balance += from < to ? 1 : -1; edges.set(key, edge);
+      }
+    }
+    if (!(signedVolume > 0) || !Number.isFinite(signedVolume) || [...edges.values()].some(edge => edge.count !== 2 || edge.balance !== 0)) {
+      throw new Error(`${component}: failed closed-surface winding check.`);
+    }
+    return { component, positions, normals, triangles: this.faces.length / 3, vertices: points.length,
+      closed: true, dimensions: [high[0] - low[0], high[1] - low[1], high[2] - low[2]] };
+  }
+}
+
+function fixture(spec: RestorationSpec) {
+  const { radius, length, depth, taper } = spec.parameters.fixture;
+  const mesh = new Surface();
+  let last = -1;
+  for (let i = 0; i <= 6; i++) {
+    const t = i / 6, r = radius * (1 - taper * (1 - t)), z = -depth - length * (1 - t);
+    const ring = mesh.ring(angle => [r * Math.cos(angle), r * Math.sin(angle), z]);
+    if (last < 0) mesh.cap(ring, [0, 0, z], false); else mesh.connect(last, ring);
+    last = ring;
+  }
+  mesh.cap(last, [0, 0, -depth], true);
+  return mesh.mesh('fixture', spec.frame);
+}
+
+function abutment(spec: RestorationSpec) {
+  const { radius, height, emergenceRadius, angleX, angleY } = spec.parameters.abutment;
+  const { depth, radius: platformRadius } = spec.parameters.fixture;
+  const mesh = new Surface();
+  const dx = Math.tan(angleY * Math.PI / 180) * height;
+  const dy = -Math.tan(angleX * Math.PI / 180) * height;
+  let last = -1;
+  // A generic trans-site envelope bridges the explicit fixture platform to the
+  // site datum. Matching envelope radii is visual continuity, never a precision
+  // platform, internal connection, seating tolerance, or compatible hardware.
+  if (depth > 0) {
+    for (let i = 0; i < 4; i++) {
+      const t = i / 4, r = platformRadius + (emergenceRadius - platformRadius) * t;
+      const z = -depth * (1 - t);
+      const ring = mesh.ring(angle => [r * Math.cos(angle), r * Math.sin(angle), z]);
+      if (last < 0) mesh.cap(ring, [0, 0, -depth], false); else mesh.connect(last, ring);
+      last = ring;
+    }
+  }
+  // Above the site plane, angles describe centerline slopes, not a rigid tilt.
+  for (let i = 0; i <= 6; i++) {
+    const t = i / 6, r = emergenceRadius + (radius - emergenceRadius) * t;
+    const ring = mesh.ring(angle => [dx * t + r * Math.cos(angle), dy * t + r * Math.sin(angle), height * t]);
+    if (last < 0) mesh.cap(ring, [0, 0, 0], false); else mesh.connect(last, ring);
+    last = ring;
+  }
+  mesh.cap(last, [dx, dy, height], true);
+  const top: Vec3 = [dx, dy, height];
+  return { mesh: mesh.mesh('abutment', spec.frame), top };
+}
+
+/** Resolve the unmodified anatomy so a fitted/saved spec can retain it across
+ * future template revisions. Returned arrays are independent of the input. */
+export function restorationCrownShape(spec: RestorationSpec) {
+  const arch = spec.fdi < 30 ? 'upper' : 'lower';
+  // Keep callers that explicitly compare alternative anatomy classes useful:
+  // the class is authoritative, while the FDI digit refines a matching class.
+  const digits = { incisor: 1, canine: 3, premolar: 4, molar: 6 };
+  const digit = spec.fdi % 10;
+  const inferredClass = digit <= 2 ? 'incisor' : digit === 3 ? 'canine' : digit <= 5 ? 'premolar' : 'molar';
+  return spec.crownShape ? cloneShape(spec.crownShape) : templateShape(arch, inferredClass === spec.anatomy ? digit : digits[spec.anatomy]);
+}
+
+function crown(spec: RestorationSpec, base: Vec3) {
+  const { width, depth, height, cuspHeight, rotation } = spec.parameters.crown;
+  const shape = restorationCrownShape(spec);
+  // Deform a fresh copy only. The fitter pins the unmodified base shape and
+  // repeated edit/save/rebuild operations must never compound these scales.
+  const cervicalScale = spec.contour?.cervicalScale ?? 1, occlusalScale = spec.contour?.occlusalScale ?? 1;
+  if (cervicalScale !== 1) {
+    const levels = shape.wall.length / shape.rim.length;
+    for (let level = 0; level < levels; level++) {
+      const factor = 1 + (cervicalScale - 1) * (1 - level / (levels - 1)) ** 2;
+      for (let angle = 0; angle < shape.rim.length; angle++) shape.wall[level * shape.rim.length + angle] *= factor;
+    }
+  }
+  // Body height scales the anatomy. Relief control extends only elevations
+  // above each rim datum, preserving cervical contours and positive fossae.
+  const rim = Array.from(shape.rimZ);
+  for (let a = 0; a < rim.length; a++) for (let r = 0; r < shape.occlusal.length / rim.length; r++) {
+    const index = r * rim.length + a, value = shape.occlusal[index];
+    shape.occlusal[index] = value + cuspHeight / height * Math.max(0, (value - rim[a]) / Math.max(0.05, 1 - rim[a]));
+    // Scale positive relief above each rim, preserving positive fossae and
+    // measured wall datums. Existing cuspHeight behavior is identical at 1.
+    if (occlusalScale !== 1 && shape.occlusal[index] > rim[a]) shape.occlusal[index] = rim[a] + (shape.occlusal[index] - rim[a]) * occlusalScale;
+  }
+  const centreRim = rim.reduce((sum, value) => sum + value, 0) / rim.length;
+  shape.apex += cuspHeight / height * Math.max(0, (shape.apex - centreRim) / Math.max(0.05, 1 - centreRim));
+  if (occlusalScale !== 1 && shape.apex > centreRim) shape.apex = centreRim + (shape.apex - centreRim) * occlusalScale;
+  const anatomy = buildCrownMesh(shape, [width, depth, height]);
+  const mesh = new Surface(), angle = rotation * Math.PI / 180;
+  for (let i = 0; i < anatomy.vertices.length; i += 3) {
+    const x = anatomy.vertices[i] * (spec.anatomicalSigns?.mesial ?? 1), y = anatomy.vertices[i + 1] * (spec.anatomicalSigns?.buccal ?? 1), z = anatomy.vertices[i + 2];
+    mesh.point([base[0] + x * Math.cos(angle) - y * Math.sin(angle), base[1] + x * Math.sin(angle) + y * Math.cos(angle), base[2] + z]);
+  }
+  mesh.faces = Array.from(anatomy.indices);
+  if ((spec.anatomicalSigns?.mesial ?? 1) * (spec.anatomicalSigns?.buccal ?? 1) < 0) {
+    for (let i = 0; i < mesh.faces.length; i += 3) [mesh.faces[i + 1], mesh.faces[i + 2]] = [mesh.faces[i + 2], mesh.faces[i + 1]];
+  }
+  return mesh.mesh('crown', spec.frame);
+}
+
+/** Explicit planes in the parent's source coordinates; no bone datum is inferred. */
+export function restorationReferencePlanes(spec: RestorationSpec): RestorationReferencePlanes {
+  validateRestorationSpec(spec);
+  const { frame, parameters: { fixture: f, abutment: a } } = spec;
+  const plane = (x: number, y: number, z: number) => ({
+    origin: [frame.origin[0] + x * frame.u[0] + y * frame.v[0] + z * frame.up[0],
+      frame.origin[1] + x * frame.u[1] + y * frame.v[1] + z * frame.up[1],
+      frame.origin[2] + x * frame.u[2] + y * frame.v[2] + z * frame.up[2]] satisfies Vec3,
+    normal: [...frame.up] satisfies Vec3,
+  });
+  return { site: plane(0, 0, 0), fixturePlatform: plane(0, 0, -f.depth), fixtureApex: plane(0, 0, -f.depth - f.length),
+    crownBase: plane(a.height * Math.tan(a.angleY * Math.PI / 180), -a.height * Math.tan(a.angleX * Math.PI / 180), a.height),
+    interpretation: 'generic-contiguous-envelopes; no compatible implant connection' };
+}
+
+/**
+ * Three independent, closed triangle soups in the ORIGINAL SOURCE frame.
+ * Fixture coronal face is origin - depth*up, apex extends a further length.
+ * Abutment bridges the platform to the site plane, then rises to crown base.
+ * Coincident envelope faces do not encode an implant connection or seating.
+ * Crown anatomy is a donor/template hypothesis; basal caps are artificial.
+ */
+export function generateRestoration(spec: RestorationSpec): RestorationMesh[] {
+  validateRestorationSpec(spec);
+  const pillar = abutment(spec);
+  return [fixture(spec), pillar.mesh, crown(spec, pillar.top)];
+}

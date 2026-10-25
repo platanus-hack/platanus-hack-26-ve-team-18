@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FDI tooth isolation concept</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--foreground, #243447); font: 14px/1.5 var(--font-sans, system-ui); }
+  #tooth-concept { width: 100%; }
+  .caption, .quadrant-label, .schematic-label { color: var(--muted-foreground, #596d82); font-size: 12px; }
+  .caption { margin-bottom: 14px; }
+  .chart { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; row-gap: 14px; }
+  .quadrant-label { margin-bottom: 6px; }
+  .numbers { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  button { font: inherit; color: inherit; }
+  .tooth { padding: 9px 0; min-height: 42px; border: 1px solid var(--border, #ccd6e2); border-radius: 7px; background: var(--card, #f5f8fc); }
+  .tooth[aria-pressed="true"] { color: var(--primary-foreground, #fff); background: var(--primary, #246bba); border-color: var(--primary, #246bba); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--ring, #3685dc); outline-offset: 3px; }
+  .selection { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 21px 0 8px; }
+  .selection strong { font-weight: 500; }
+  .surface { padding: 16px; border-radius: 12px; background: var(--muted, #edf3f9); }
+  .surface-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .surface-head label { display: flex; align-items: center; gap: 7px; }
+  input { accent-color: var(--primary, #246bba); }
+  svg { display: block; width: 100%; height: 206px; overflow: visible; }
+  .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; background: var(--chart-1, #418bd9); }
+  .swatch.other { background: var(--muted-foreground, #596d82); opacity: .25; }
+  .swatch.line { height: 0; width: 16px; border-top: 2px dashed var(--foreground, #243447); border-radius: 0; background: transparent; }
+  .schematic-label { margin-top: 10px; }
+  @media (max-width: 540px) { .chart { grid-template-columns: 1fr; gap: 12px; } .numbers { gap: 6px; } .surface-head { align-items: start; flex-direction: column; } }
+  @media (max-width: 360px) { .numbers { gap: 3px; } .tooth { min-height: 44px; } }
+</style>
+<div id="tooth-concept">
+  <div class="caption">FDI / ISO 3950 · Permanent teeth · Patient’s right appears on the left</div>
+  <div class="chart" aria-label="FDI permanent tooth selector">
+    <div><div class="quadrant-label">Upper · Patient’s right</div><div class="numbers" data-quadrant="1"></div></div>
+    <div><div class="quadrant-label">Upper · Patient’s left</div><div class="numbers" data-quadrant="2"></div></div>
+    <div><div class="quadrant-label">Lower · Patient’s right</div><div class="numbers" data-quadrant="4"></div></div>
+    <div><div class="quadrant-label">Lower · Patient’s left</div><div class="numbers" data-quadrant="3"></div></div>
+  </div>
+  <div class="selection" aria-live="polite"><strong id="tooth-name"></strong><span class="caption" style="margin:0">Assigned triangle selection</span></div>
+  <div class="surface">
+    <div class="surface-head"><span id="surface-state">Saved boundary + triangle mask</span><label><input id="context" type="checkbox" checked>Show surrounding surface</label></div>
+    <svg id="mesh-diagram" role="img" aria-label="Schematic of one selected tooth surface, its boundary, neighboring teeth, and gum surface"></svg>
+    <div class="legend"><span><i class="swatch"></i>Selected triangles</span><span><i class="swatch other"></i>Gum + neighbors</span><span><i class="swatch line"></i>Boundary</span></div>
+  </div>
+  <div class="schematic-label">Selection concept only · Shapes are schematic · No scan loaded or segmented</div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('tooth-concept');
+  const svg = root.querySelector('#mesh-diagram');
+  const checkbox = root.querySelector('#context');
+  const names = ['central incisor', 'lateral incisor', 'canine', 'first premolar', 'second premolar', 'first molar', 'second molar', 'third molar'];
+  const valid = new Set([1,2,3,4].flatMap(q => Array.from({length:8}, (_,i) => q*10+i+1)));
+  const saved = window.openai?.widgetState?.modelContent;
+  let selected = valid.has(saved?.fdi) ? saved.fdi : 16;
+  checkbox.checked = window.openai?.widgetState?.privateContent?.context !== false;
+  function description(code) {
+    const q = Math.floor(code/10), n = code%10;
+    return `${q < 3 ? 'Upper' : 'Lower'} ${q === 1 || q === 4 ? 'right' : 'left'} ${names[n-1]}`;
+  }
+  root.querySelectorAll('[data-quadrant]').forEach(group => {
+    const q = Number(group.dataset.quadrant);
+    const values = Array.from({length:8}, (_,i) => q*10+i+1);
+    if (q === 1 || q === 4) values.reverse();
+    values.forEach(code => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'tooth'; button.textContent = code;
+      button.dataset.fdi = code; button.setAttribute('aria-label', `FDI ${code}, ${description(code)}`);
+      button.addEventListener('click', () => { selected = code; update(); persist(); });
+      group.appendChild(button);
+    });
+  });
+  const ns = 'http://www.w3.org/2000/svg';
+  function element(tag, attrs, parent = svg) {
+    const el = document.createElementNS(ns, tag);
+    Object.entries(attrs).forEach(([key,value]) => el.setAttribute(key, value));
+    parent.appendChild(el); return el;
+  }
+  function mesh(cx, cy, width, height, active) {
+    const group = element('g', {opacity: active ? 1 : .38});
+    const rows = 6, cols = 5;
+    const widths = [.48,.84,1,.96,.8,.58];
+    const points = Array.from({length:rows}, (_,r) => Array.from({length:cols}, (_,c) => [cx+(c/(cols-1)-.5)*width*widths[r], cy+r/(rows-1)*height+Math.sin(c*1.8+r)*3]));
+    for (let r=0;r<rows-1;r++) for (let c=0;c<cols-1;c++) {
+      const a=points[r][c], b=points[r][c+1], d=points[r+1][c], e=points[r+1][c+1];
+      for (const tri of [[a,b,d],[b,e,d]]) element('polygon', {
+        points:tri.map(p=>p.join(',')).join(' '),
+        fill:active?'var(--chart-1, #418bd9)':'var(--muted-foreground, #596d82)',
+        'fill-opacity':active?.30+(r+c)%3*.09:.14,
+        stroke:active?'var(--chart-1, #418bd9)':'var(--muted-foreground, #596d82)',
+        'stroke-opacity':active?.6:.35, 'stroke-width':.7
+      }, group);
+    }
+    if (active) {
+      const border = [...points[0], ...points.slice(1).map(row=>row[cols-1]), ...points[rows-1].slice(0,cols-1).reverse(), ...points.slice(1,rows-1).reverse().map(row=>row[0])];
+      element('polygon', {points:border.map(p=>p.join(',')).join(' '), fill:'none', stroke:'var(--foreground, #243447)', 'stroke-width':1.8, 'stroke-dasharray':'5 4'}, group);
+    }
+  }
+  function draw() {
+    const w = svg.getBoundingClientRect().width;
+    if (!w) return;
+    svg.replaceChildren(); svg.setAttribute('viewBox', `0 0 ${w} 206`);
+    if (checkbox.checked) {
+      element('path', {d:`M 8 119 Q ${w*.25} 101 ${w*.5} 129 Q ${w*.75} 100 ${w-8} 120 L ${w-8} 183 Q ${w*.5} 197 8 181 Z`, fill:'var(--muted-foreground, #596d82)', 'fill-opacity':.09});
+      mesh(w*.18, 28, w*.24, 130, false);
+      mesh(w*.82, 33, w*.24, 127, false);
+    }
+    mesh(w*.5, 24, w*.25, 137, true);
+    const label = element('text', {x:w*.5,y:191,'text-anchor':'middle',fill:'var(--foreground, #243447)','font-size':14});
+    label.textContent = `FDI ${selected}`;
+  }
+  function update() {
+    root.querySelector('#tooth-name').textContent = `${selected} · ${description(selected)}`;
+    root.querySelectorAll('[data-fdi]').forEach(button => button.setAttribute('aria-pressed', Number(button.dataset.fdi) === selected ? 'true' : 'false'));
+    root.querySelector('#surface-state').textContent = checkbox.checked ? 'Saved boundary + triangle mask' : 'Isolated tooth surface';
+    draw();
+  }
+  function persist() {
+    if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{fdi:selected},privateContent:{context:checkbox.checked}}).catch(()=>{});
+  }
+  checkbox.addEventListener('change', () => { update(); persist(); });
+  window.addEventListener('openai:set_globals', event => {
+    const state = event.detail?.globals?.widgetState;
+    if (!state) return;
+    if (valid.has(state.modelContent?.fdi)) selected = state.modelContent.fdi;
+    checkbox.checked = state.privateContent?.context !== false; update();
+  });
+  new ResizeObserver(draw).observe(svg);
+  update();
+  console.log('FDI selector ready:', root.querySelectorAll('[data-fdi]').length, 'permanent tooth slots.');
+})();
+</script>
+</html>

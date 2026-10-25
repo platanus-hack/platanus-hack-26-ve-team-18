@@ -1,0 +1,39 @@
+/* The primary workspace is a model and an observed process; tools open on demand. */
+.app-header .brand { font-size:16px; }
+.app-header .brand strong { color:#6a7e96; font-weight:450; }
+.header-actions > button { font-size:12px; }
+.workspace-topline { margin:6px 0 20px; align-items:center; }
+.workspace-topline h1 { font-size:25px; letter-spacing:-.8px; font-weight:550; }
+.workspace-eyebrow { margin:0 0 8px!important; color:#64809f!important; font-size:10px!important; text-transform:uppercase; letter-spacing:.14em; }
+.workspace-topline p { margin-top:7px; }
+.case-state { display:flex; align-items:center; gap:7px; font-size:11px; color:#5c7390; text-transform:capitalize; }
+.case-state > span { width:6px; height:6px; border-radius:50%; background:#7290b7; }
+.planning-workspace { grid-template-columns:minmax(0,1fr) 336px; align-items:start; gap:20px; }
+.planning-scene .viewport { height:calc(100dvh - 204px); min-height:530px; border-radius:14px; background:#eef3f9; }
+.planning-scene .viewport::before { opacity:.18; }
+.planning-scene { top:14px; }
+.planning-scene .case-caption { padding:11px 4px; font-size:10px; }
+.planning-scene .viewport-empty h2 { font-size:29px; font-weight:450; }
+.advanced-workspace { margin:24px 0 0; padding:22px; background:#fff; border:1px solid #dce5f0; border-radius:12px; scroll-margin-top:16px; }
+.advanced-workspace[hidden], .tomography-workspace[hidden] { display:none; }
+.advanced-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
+.advanced-heading h2 { font-size:17px; font-weight:550; }
+.advanced-heading button { flex-shrink:0; }
+.advanced-planning { margin-top:18px; display:grid; grid-template-columns:minmax(0,1fr); gap:18px; }
+.advanced-planning .planning-panel { max-width:none; }
+.advanced-workspace > .display-options { justify-content:flex-start; margin-top:16px; align-items:center; }
+.tomography-workspace { scroll-margin-top:20px; }
+.process-scene-note { position:absolute; bottom:50px; left:18px; font-size:11px; color:#597695; }
+@media(min-width:1650px) { .planning-workspace { grid-template-columns:minmax(0,1fr) 360px; } }
+@media(max-width:1050px) { .planning-workspace { grid-template-columns:minmax(0,1fr) 310px; gap:14px; } .planning-scene .viewport { min-height:520px; } }
+@media(max-width:800px) { .planning-workspace { grid-template-columns:minmax(0,1fr); } .planning-controls { order:-1; } .planning-scene { position:static; } .planning-scene .viewport { min-height:410px; height:55dvh; } .workspace-topline h1 { font-size:23px; } .workspace-topline { margin-bottom:17px; flex-direction:row; } .case-state { font-size:10px; } .advanced-workspace { padding:16px; } .brand strong, .version { display:none; } }
+@media(max-width:480px) { .app-header .brand { font-size:16px; } .header-actions { gap:5px; } .header-actions > button { padding:6px 8px; font-size:11px; } .workspace-topline h1 { font-size:21px; } .case-state { display:none; } .advanced-heading h2 { font-size:15px; } .planning-scene .viewport-empty h2 { font-size:25px; } }
+.compact-camera { display:flex; align-items:flex-start; gap:6px; pointer-events:auto; margin-left:auto; }
+.compact-camera > button, .camera-menu > summary, .scene-menu > summary { min-height:32px; padding:7px 11px; border:1px solid #d7e1ed; border-radius:7px; background:#fffffff0; color:#526c8d; cursor:pointer; font-size:11px; list-style:none; }
+.camera-menu > summary::-webkit-details-marker, .scene-menu > summary::-webkit-details-marker { display:none; }
+.camera-menu[open] > summary, .scene-menu[open] > summary { background:#e5eefb; color:#285ec7; }
+.camera-menu .camera-tools { position:absolute; top:42px; right:0; width:min(440px,calc(100vw - 60px)); padding:10px; background:#fff; border:1px solid #d7e1ed; border-radius:9px; z-index:4; }
+.scene-menu { position:absolute; bottom:45px; left:15px; max-width:calc(100% - 30px); z-index:3; }
+.scene-menu .scene-visibility { position:static; background:#fff; border-radius:8px; margin-top:6px; max-width:100%; box-shadow:none; }
+.scene-menu .scene-visibility-title { display:none; }
+@media(max-width:800px) { .camera-menu .camera-tools { max-width:calc(100vw - 60px); } }

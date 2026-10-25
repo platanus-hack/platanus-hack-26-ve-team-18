@@ -1,0 +1,4 @@
+.anthropic-model-select { display: flex; flex-direction: column; gap: 5px; width: 100%; max-width: 270px; margin: 12px 0; color: #52677e; font-size: 12px; }
+.anthropic-model-select select { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #cbdbea; border-radius: 6px; background: #fff; color: #223449; font: inherit; }
+.anthropic-model-select select:focus-visible { outline: 3px solid #8db2f5; outline-offset: 2px; }
+.anthropic-model-select select:disabled { opacity: .6; cursor: not-allowed; }

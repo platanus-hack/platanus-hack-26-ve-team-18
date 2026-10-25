@@ -1,0 +1,49 @@
+.workflow-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:6px 0 18px;padding:6px;background:#eaf0f8;border:1px solid #dbe4f1;border-radius:10px}.workflow-steps button{justify-content:flex-start;border-color:transparent;background:transparent;padding:11px 12px;color:#62748b}.workflow-steps button span{display:grid;place-items:center;width:23px;height:23px;border:1px solid #bdcce0;border-radius:50%;font-size:11px}.workflow-steps button[aria-current=step]{background:#fff;color:#285ec7;border-color:#ccdcf5;box-shadow:0 2px 5px #254d8a08}.workflow-steps button[aria-current=step] span{background:#285ec7;color:white;border-color:#285ec7}.planning-workspace{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr);gap:18px;align-items:start}.planning-scene{position:sticky;top:16px;min-width:0}.planning-scene .viewport{height:calc(100dvh - 270px);min-height:430px;max-height:760px}.planning-scene .viewport-toolbar{flex-wrap:wrap}.planning-scene .camera-tools{flex-wrap:wrap;justify-content:flex-start}.planning-scene .viewport-footer{font-size:10px;flex-wrap:wrap;gap:4px}.case-caption{font-size:11px;color:#6b7e96;line-height:1.6;padding:9px 3px}.planning-controls{display:flex;flex-direction:column;gap:16px;min-width:0}.case-corrections,.inspection-details,.assistant-details{margin-top:20px;background:#fff;border:1px solid #dbe4f1;border-radius:9px}.case-corrections>summary,.inspection-details>summary,.assistant-details>summary{font-size:12px;font-weight:600;padding:14px 16px;cursor:pointer;color:#4c6585}.case-corrections .tooth-panel{border:0;margin:0}.case-corrections .tooth-workbench{grid-template-columns:1fr}.case-corrections .tooth-workbench-main:empty{display:none}.inspection-details .results,.assistant-details .assistant-panel{border:0;margin-top:0}.texture-status{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:15px 0;padding:10px;border:1px solid #dce7f4;border-radius:7px;background:#f6f9fd;font-size:11px}.texture-status strong{width:100%}.texture-status span{flex:1}.texture-status button{padding:4px 7px;font-size:10px;min-height:28px}.pose-details>summary{font-size:11px;font-weight:600;color:#547099;cursor:pointer;margin-top:15px}.pose-details .opacity-control{margin-top:16px}.sidebar-bottom{margin-top:28px}.main-column{padding:22px;min-width:0}.brand strong{font-weight:500}.app-header .local-note{font-size:11px}.planning-workspace .restoration-panel{margin:0}.planning-controls h2{font-size:15px}.workflow-steps button{font-size:12px}.case-corrections[open]>summary{border-bottom:1px solid #e1e9f3}.inspection-details[open]>summary{border-bottom:1px solid #e1e9f3}
+@media(min-width:1600px){.planning-workspace{grid-template-columns:minmax(0,1.65fr) minmax(360px,1fr)}}
+.bite-settings>summary{cursor:pointer;color:#547099;font-size:11px;margin-top:14px}
+@media(max-width:1150px){.workspace{grid-template-columns:230px minmax(0,1fr)}.main-column{padding:16px}.sidebar{padding:22px 14px}.planning-workspace{grid-template-columns:minmax(0,1fr)}.planning-scene{position:static}.planning-scene .viewport{height:480px;min-height:340px}.planning-controls{display:grid;grid-template-columns:minmax(0,1fr)}.workflow-steps button{font-size:11px;padding:8px 6px}.local-note{display:none}}
+@media(max-width:700px){.workspace{display:flex;flex-direction:column}.sidebar{border-right:0;border-bottom:1px solid #dbe4f1;padding:15px}.sidebar-intro{max-width:440px}.part-list{display:flex;max-height:150px;gap:5px}.part-row{min-width:210px;max-width:260px}.part-detail .scan-role{max-width:320px}.texture-status{max-width:380px}.sidebar .collision-settings,.sidebar-bottom{display:none}.part-detail{margin-top:10px;padding-top:12px}.app-header{padding:0 15px;height:68px;gap:8px}.app-header .brand{font-size:14px;gap:7px}.brand-divider,.version{display:none}.header-actions>button:first-of-type{display:none}.main-column{padding:14px}.workflow-steps{gap:2px}.workflow-steps button{flex-direction:column;gap:5px;font-size:10px;text-align:center}.planning-scene .viewport{height:420px;min-height:320px}.planning-scene .viewport-toolbar{gap:8px;padding:10px}.planning-scene .camera-tools{gap:5px}.planning-scene .camera-views button{padding:5px}.planning-scene .viewport-footer span:last-child{display:none}.workspace-topline{align-items:flex-start;gap:12px}.display-options{gap:6px;flex-wrap:wrap}.workflow-steps button span{width:21px;height:21px}}
+
+/* Give the patient model the workspace; scan administration is available on demand. */
+.workspace{grid-template-columns:minmax(0,1fr)}
+.app-header{height:64px;padding-inline:22px}
+.main-column{padding:16px 22px 28px}
+.workspace-topline{margin-bottom:12px}
+.workflow-steps{margin-bottom:14px;padding:4px}
+.workflow-steps button{padding:8px 12px}
+.planning-workspace{grid-template-columns:minmax(0,1fr) 340px;gap:16px}
+.planning-scene{top:12px}
+.planning-scene .viewport{height:calc(100dvh - 224px);min-height:460px;max-height:none}
+.planning-scene .viewport-toolbar{inset:12px 12px auto;gap:8px}
+.planning-scene .view-label{display:none}
+.planning-scene .camera-tools{justify-content:flex-start;gap:5px}
+.planning-scene .viewport-footer{inset-inline:16px;bottom:12px;font-size:10px}
+.planning-scene .viewport-footer>span:last-child{display:none}
+.sidebar{position:fixed;inset:64px auto 0 0;width:min(310px,90vw);overflow-y:auto;overscroll-behavior:contain;z-index:21;border-right:1px solid #dce5f0;box-shadow:12px 0 32px #233b5b12;padding:22px 20px;display:flex}
+.sidebar[hidden]{display:none}
+.scan-backdrop{position:fixed;inset:64px 0 0;z-index:20;border:0;border-radius:0;background:#21384c33;cursor:default}
+.scan-backdrop:hover:not(:disabled){background:#21384c33}
+.close-scans{margin-left:auto}
+.sidebar-heading .ml-auto{margin-left:auto}
+.sidebar-heading .ml-auto+.close-scans{margin-left:0}
+.scene-visibility{position:absolute;inset:auto auto 46px 16px;right:16px;width:fit-content;max-width:calc(100% - 32px);display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:9px 11px;background:#fffffff0;border:1px solid #d6e1ee;border-radius:9px;box-shadow:0 3px 14px #24426a08;z-index:2}
+.scene-visibility-title{font-size:10px;color:#6a7e96;text-transform:uppercase;letter-spacing:.08em}
+.jaw-control{display:flex;align-items:center;gap:7px}
+.jaw-control button{min-height:30px;border:0;background:#edf3fc;padding:5px 8px;font-size:11px;color:#285ec7}
+.jaw-control button[aria-pressed=false]{background:#f1f4f8;color:#718196}
+.jaw-control input{width:74px;accent-color:#285ec7;cursor:pointer;margin:0}
+.jaw-control output{font-size:10px;color:#5c7390;min-width:30px;font-variant-numeric:tabular-nums}
+.scene-reset{font-size:10px;min-height:28px;padding:4px 7px;border:0;background:transparent;color:#285ec7}
+.viewport-empty{bottom:90px}
+.planning-scene .viewport.viewport-expanded{position:fixed;inset:12px;z-index:40;height:calc(100dvh - 24px);min-height:0;max-height:none;box-shadow:0 0 0 20px #edf3f9}
+.bite-panel{margin-top:18px;margin-bottom:0;padding:0;background:#fff}
+.bite-panel>summary{cursor:pointer;padding:13px 16px;font-size:12px;font-weight:550;color:#547099}
+.bite-panel[open]{padding:0 16px 16px}
+.bite-panel[open]>summary{padding-inline:0;margin-bottom:5px}
+.bite-notice{padding:12px 14px;margin-bottom:14px;border:1px solid #d5e2f3;border-radius:8px;background:#f0f5fd;color:#486887;font-size:12px;line-height:1.7}
+.bite-notice p{margin:5px 0}
+.bite-notice summary{cursor:pointer;color:#42659a}
+@media(min-width:1650px){.planning-workspace{grid-template-columns:minmax(0,1fr) 370px}.main-column{padding:18px 28px 30px}.workspace{grid-template-columns:minmax(0,1fr)}}
+@media(min-width:1000px) and (max-width:1150px){.workspace{grid-template-columns:minmax(0,1fr)}.planning-workspace{grid-template-columns:minmax(0,1fr) 310px}.planning-scene{position:sticky}.planning-scene .viewport{height:calc(100dvh - 224px);min-height:460px}}
+@media(max-width:999px){.workspace{grid-template-columns:minmax(0,1fr)}.planning-workspace{grid-template-columns:minmax(0,1fr)}.planning-scene{position:static}.planning-scene .viewport{height:calc(100dvh - 235px);min-height:430px;max-height:760px}.main-column{padding:15px}.sidebar{padding:20px}.planning-controls{display:flex}}
+@media(max-width:700px){.app-header{height:64px;min-height:64px;padding:0 12px;flex-wrap:nowrap}.header-actions{gap:6px}.header-actions>button:first-of-type{display:inline-flex;padding:6px 8px}.header-actions .export-report{display:none}.header-actions .badge{display:none}.app-header .brand{font-size:13px}.brand-mark{display:none}.header-actions button{font-size:11px}.sidebar{padding:18px;order:0}.sidebar .collision-settings{display:block}.sidebar .part-list{display:block;max-height:250px}.sidebar .part-row{min-width:0;max-width:none}.main-column{padding:12px}.workflow-steps button{padding:7px 5px;font-size:10px}.planning-scene .viewport{height:calc(100dvh - 225px);min-height:450px}.planning-scene .viewport-toolbar{inset:8px;padding:0}.planning-scene .camera-tools{gap:4px}.camera-tools .camera-actions{order:2}.camera-tools .camera-views{order:3}.camera-tools .view-buttons button{padding:4px 6px;font-size:10px}.scene-visibility{left:10px;right:10px;bottom:43px;max-width:calc(100% - 20px);gap:6px;padding:7px}.scene-visibility-title{display:none}.jaw-control{gap:4px}.jaw-control input{width:48px}.jaw-control output{min-width:25px;font-size:9px}.jaw-control button{padding:4px 5px;font-size:10px}.scene-reset{padding:3px 4px}.workspace-topline{flex-direction:column;gap:8px}.display-options{flex-direction:row;gap:12px}.case-caption{font-size:10px}}

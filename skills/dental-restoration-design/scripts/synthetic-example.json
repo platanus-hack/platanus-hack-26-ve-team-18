@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "dental-crown-concept/v1",
+  "purpose": "exterior-concept-only",
+  "units": { "status": "unknown", "name": null, "provenance": "Synthetic demonstration; arbitrary file units, not clinical dimensions." },
+  "sources": [
+    {
+      "id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "fileName": "synthetic-upper.ply",
+      "role": "upper",
+      "fileToWorld": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+      "provenance": "Placeholder hash for a synthetic schema example only; replace with the real inventory SHA256 ID."
+    }
+  ],
+  "site": {
+    "hypothetical": true,
+    "toothNotation": "user-defined",
+    "toothIdentity": "synthetic molar site A",
+    "arch": "upper",
+    "sourceScanId": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "provenance": "Hypothetical demonstration site; not identified from anatomy."
+  },
+  "frame": {
+    "origin": [30, -20, 10],
+    "xAxis": [1, 0, 0],
+    "yAxis": [0, 1, 0],
+    "zAxis": [0, 0, 1],
+    "provenance": "Synthetic pose; caller must supply the actual global site frame, including occlusal direction."
+  },
+  "geometry": {
+    "kind": "parametric-crown-exterior-v1",
+    "toothClass": "molar",
+    "width": 12,
+    "depth": 10,
+    "basalWidth": 8,
+    "basalDepth": 7,
+    "shoulderHeight": 5,
+    "domeHeight": 1,
+    "grooveDepth": 0.8,
+    "grooveWidth": 0.6,
+    "cusps": [
+      { "position": [-2.7, -2.2], "height": 2.5, "radius": 1.4 },
+      { "position": [2.7, -2.2], "height": 2.8, "radius": 1.4 },
+      { "position": [-2.7, 2.2], "height": 2.3, "radius": 1.4 },
+      { "position": [2.7, 2.2], "height": 2.6, "radius": 1.4 }
+    ],
+    "tessellation": { "angularSegments": 64, "axialSegments": 6, "radialSegments": 20 },
+    "basalClosure": "artificial-flat-cap"
+  }
+}

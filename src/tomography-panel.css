@@ -1,0 +1,68 @@
+.tomography-panel { color: #334155; background: #fff; border: 1px solid #dbe5ef; border-radius: 12px; padding: 18px; margin: 16px 0; font-size: 13px; line-height: 1.5; }
+.tomography-panel * { box-sizing: border-box; }
+.tomography-panel h2, .tomography-panel h3, .tomography-panel p { margin: 0; }
+.tomography-panel h2 { color: #1e3a5f; font-size: 18px; font-weight: 650; }
+.tomography-panel h3 { padding: 9px 12px; color: #1e3a5f; font-size: 13px; font-weight: 650; text-transform: capitalize; }
+.tomography-panel h3 small { color: #64748b; font-weight: 400; }
+.tomography-panel button, .tomography-panel input, .tomography-panel select { font: inherit; }
+.tomography-panel button { border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; color: #335a80; padding: 6px 10px; cursor: pointer; }
+.tomography-panel button:hover:enabled { background: #eff6ff; border-color: #93c5fd; }
+.tomography-panel button[aria-pressed="true"] { background: #e0efff; border-color: #93c5fd; color: #1d4ed8; }
+.tomography-panel :disabled { opacity: .5; cursor: not-allowed; }
+.tomography-panel :focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+.tomography-panel input[type="number"], .tomography-panel select { display: block; width: 100%; min-width: 0; margin-top: 4px; background: #fff; border: 1px solid #cbd5e1; color: #334155; border-radius: 6px; padding: 5px 7px; }
+.tomography-panel input[type="range"] { display: block; width: 100%; margin: 7px 0; accent-color: #3b82f6; }
+.tomography-panel input[type="checkbox"] { accent-color: #3b82f6; flex-shrink: 0; }
+.tomography-header, .tomography-import-actions, .tomography-registration-bar, .tomography-measure-toolbar, .tomography-crosshair-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tomography-header { justify-content: space-between; margin-bottom: 10px; gap: 12px; }
+.tomography-header p { color: #64748b; margin-top: 3px; }
+.tomography-check { display: flex; gap: 7px; align-items: flex-start; margin: 8px 0; }
+.tomography-check input { margin-top: 3px; }
+.tomography-preview-option { color: #64748b; font-size: 12px; }
+.tomography-status { color: #476a91; margin: 8px 0 !important; }
+.tomography-error, .tomography-warning, .tomography-notice { padding: 10px 12px; border-radius: 7px; margin: 10px 0 !important; }
+.tomography-error { background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; }
+.tomography-warning { background: #fffbeb; border: 1px solid #fde68a; color: #854d0e; }
+.tomography-notice { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+.tomography-empty { padding: 30px 18px; text-align: center; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 9px; margin-top: 12px; }
+.tomography-empty strong { color: #476a91; font-size: 15px; }
+.tomography-empty p { max-width: 620px; margin: 8px auto 0; color: #64748b; }
+.tomography-volume-summary { display: flex; gap: 12px; flex-wrap: wrap; background: #f1f7fd; border-radius: 7px; padding: 9px 12px; margin: 12px 0; }
+.tomography-volume-summary strong { color: #335a80; }
+.tomography-series-select { display: block; max-width: 560px; margin: 12px 0; }
+.tomography-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.tomography-panel fieldset { min-width: 0; border: 1px solid #dbe5ef; border-radius: 8px; margin: 0; padding: 10px 12px 12px; }
+.tomography-panel legend { color: #335a80; font-weight: 650; padding: 0 4px; }
+.tomography-panel fieldset > label { display: block; margin-bottom: 8px; }
+.tomography-panel fieldset > label.tomography-check { display: flex; }
+.tomography-panel fieldset p, .tomography-note { color: #64748b; font-size: 12px; margin: 8px 0 !important; }
+.tomography-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
+.tomography-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; margin-top: 8px; }
+.tomography-legend span::before { display: inline-block; content: ''; width: 16px; height: 3px; margin: 0 5px 3px 0; background: var(--contour); }
+.tomography-fixture { --contour: #38bdf8; }.tomography-abutment { --contour: #fbbf24; }.tomography-crown { --contour: #34d399; }
+.tomography-crosshair-controls { padding: 9px 12px; background: #f8fafc; border-radius: 8px; }
+.tomography-crosshair-controls label { display: flex; align-items: center; gap: 5px; }
+.tomography-crosshair-controls input[type="number"] { width: 96px; margin: 0; }
+.tomography-measure-toolbar { margin: 12px 0; }
+.tomography-measure-toolbar span { font-size: 12px; color: #64748b; }
+.tomography-slices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 12px; }
+.tomography-slice { border: 1px solid #dbe5ef; overflow: hidden; border-radius: 9px; min-width: 0; background: #f8fafc; }
+.tomography-slice-stage { position: relative; aspect-ratio: 1; background: #0c1624; }
+.tomography-slice-stage canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: manipulation; }
+.tomography-rendering, .tomography-slice-error { position: absolute; inset: 0; display: grid; place-items: center; color: #e2e8f0; background: #0c1624dd; padding: 20px; pointer-events: none; text-align: center; }
+.tomography-slice-error { color: #fecdd3; }
+.tomography-slice-position { display: block; padding: 9px 12px; font-size: 12px; color: #476a91; }
+.tomography-slice--oblique { grid-column: 1 / 2; }
+.tomography-registration, .tomography-warnings { padding: 10px 12px; border: 1px solid #dbe5ef; border-radius: 8px; margin: 12px 0; }
+.tomography-panel summary { cursor: pointer; color: #335a80; font-weight: 600; }
+.tomography-registration p { margin: 10px 0; color: #64748b; }
+.tomography-registration-bar { margin: 12px 0; }
+.tomography-registration-bar label { min-width: 110px; }
+.tomography-registration-reviews { display: flex; gap: 12px; flex-wrap: wrap; }
+.tomography-pairs { overflow-x: auto; }
+.tomography-pairs table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.tomography-pairs td, .tomography-pairs th { text-align: left; padding: 7px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+.tomography-pairs th { color: #476a91; font-weight: 600; }
+.tomography-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 1050px) { .tomography-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }.tomography-controls > :last-child { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .tomography-panel { padding: 12px; }.tomography-controls { grid-template-columns: 1fr; }.tomography-slices { grid-template-columns: 1fr; }.tomography-slice--oblique { grid-column: auto; }.tomography-slice-stage { max-height: none; }.tomography-import-actions { width: 100%; }.tomography-header { align-items: flex-start; } }

@@ -1,0 +1,15 @@
+.workflow-progress { padding: 12px 18px; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
+.workflow-progress progress { display: block; width: 100%; height: 5px; margin-top: 8px; accent-color: #2563eb; }
+.workflow-exceptions { list-style: none; padding: 0; margin: 12px 0; }
+.workflow-exception { border-top: 1px solid #e2e8f0; padding: 12px 0; font-size: 13px; }
+.workflow-exception p { margin: 8px 0; }
+.workflow-exception details { color: #475569; }
+.workflow-exception-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.workflow-exception-actions button, .workflow-exception-actions select { padding: 7px 9px; min-height: 34px; }
+.workflow-space { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-variant-numeric: tabular-nums; margin: 12px 0; }
+.workflow-space dt { font-size: 11px; color: #475569; }
+.workflow-space dd { margin: 4px 0 0; font-weight: 500; }
+.workflow-setting { display: grid; gap: 6px; margin: 12px 0; font-size: 13px; }
+.workflow-setting output { font-variant-numeric: tabular-nums; }
+.workflow-setting input:not([type=range]) { min-height: 34px; border: 1px solid #cbd5e1; padding: 6px 8px; border-radius: 5px; }
+@media (max-width: 640px) { .workflow-exception-actions button, .workflow-exception-actions select { min-height: 44px; } .workflow-space { grid-template-columns: 1fr; } .workflow-space div { display: flex; justify-content: space-between; } }
