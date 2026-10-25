@@ -2,9 +2,9 @@
 
 > **Track:** 🧊 Three-Dimensional  
 > **Platanus Hack 26: Caracas ft. Yummy — Team 18**  
-> **Demo en vivo:** [https://platanus-p2.onrender.com](https://platanus-p2.onrender.com)  
-> **Portal de Paciente:** [https://platanus-p2.onrender.com/#patient](https://platanus-p2.onrender.com/#patient)  
-> **Código fuente:** [https://github.com/Doble-2/platanus-hack-p2](https://github.com/Doble-2/platanus-hack-p2)
+> **Demo en vivo:** [https://cenflow-ph.onrender.com](https://cenflow-ph.onrender.com)  
+> **Portal de Paciente:** [https://cenflow-ph.onrender.com/#patient](https://cenflow-ph.onrender.com/#patient)  
+> **Código fuente:** [https://github.com/platanus-hack/platanus-hack-26-ve-team-18](https://github.com/platanus-hack/platanus-hack-26-ve-team-18)
 
 ---
 
@@ -78,7 +78,7 @@ Frente a las suites CAD legacy de escritorio (como *exocad*, *3Shape* o *exoplan
 - **Motor Geométrico en el Cliente:** Aceleración mediante Web Workers multihilo en background. Ejecuta algoritmos de colisión BVH, árboles KD, registro ICP y Marching Cubes sin latencia de red.
 - **Inteligencia Artificial Multimodal:** Claude 3.5 Sonnet a través de Vercel AI SDK, ejecutando análisis estructurado de capturas 3D multi-vista sin exponer datos sensibles del paciente.
 - **Portal del Paciente (`#patient`):** Hoja médica digital con odontograma interactivo FDI de 32 piezas, render 3D de arcadas con texturas fotorrealistas y canal directo de resolución de dudas vía WhatsApp.
-- **1.026 Tests Unitarios (100% Pass) & E2E con Playwright:** Cobertura exhaustiva de precisión geométrica, parsing DICOM y flujos de usuario.
+- **1.031 Tests Unitarios (100% Pass) & 9 Tests E2E con Playwright:** Cobertura exhaustiva de precisión geométrica, parsing DICOM, flujos de usuario y soporte móvil.
 
 ---
 

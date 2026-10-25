@@ -4,7 +4,7 @@ import type { ToothCase } from './tooth-types';
 import type { RestorationAssembly, RestorationSpec } from './restoration-types';
 import { Viewport } from './Viewport';
 import { ToothOdontogram } from './ToothOdontogram';
-import { toothName } from './teeth';
+import { toothName, toothNameEs } from './teeth';
 import { generateRestoration } from './restoration-geometry';
 import { importModels } from './import-models';
 import './patient-view.css';
@@ -18,24 +18,6 @@ interface PatientViewProps {
   selectedFdi: number | null;
   onSelectTooth: (fdi: number) => void;
   onClose: () => void;
-}
-
-export function toothNameEs(code: number): string {
-  const quad = Math.floor(code / 10);
-  const pos = code % 10;
-  const names = [
-    'Incisivo Central',
-    'Incisivo Lateral',
-    'Canino',
-    'Primer Premolar',
-    'Segundo Premolar',
-    'Primer Molar',
-    'Segundo Molar',
-    'Tercer Molar (Muela del Juicio)',
-  ];
-  const side = quad === 1 || quad === 4 ? 'Derecho' : 'Izquierdo';
-  const arch = code < 30 ? 'Superior' : 'Inferior';
-  return `${names[pos - 1]} ${arch} ${side}`;
 }
 
 const THETA = 0.165;

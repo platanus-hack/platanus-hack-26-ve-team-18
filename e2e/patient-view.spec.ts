@@ -73,4 +73,52 @@ test.describe('Patient Consultation View', () => {
     const shareBtn = page.locator('button:has-text("Compartir")').first();
     await expect(shareBtn).toBeVisible();
   });
+
+  test('navigates to patient view using query param ?view=patient', async ({ page }) => {
+    await page.goto('/?view=patient');
+
+    // Verify Patient Medical Sheet is mounted via query param
+    await expect(page.locator('.patient-shell')).toBeVisible();
+    await expect(page.locator('.patient-header h1')).toContainText('Informe para Sofia M.');
+    await expect(page.locator('.patient-viewport-box')).toBeVisible();
+  });
+
+  test('footer "Modo Especialista" button returns to doctor workspace', async ({ page }) => {
+    await page.goto('/#patient');
+
+    await expect(page.locator('.patient-shell')).toBeVisible();
+
+    // Click Modo Especialista link in footer
+    const specialistBtn = page.locator('.patient-footer button:has-text("Modo Especialista")');
+    await specialistBtn.scrollIntoViewIfNeeded();
+    await specialistBtn.click();
+
+    // Verify back in clinical workspace
+    await expect(page.locator('.workspace')).toBeVisible();
+  });
+
+  test('renders responsively and supports tooth interactions on mobile viewport', async ({ page }) => {
+    // Set mobile viewport (iPhone 14 / modern smartphone)
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/#patient');
+
+    // Verify header and 3D canvas on mobile
+    await expect(page.locator('.patient-shell')).toBeVisible();
+    await expect(page.locator('.patient-header h1')).toBeVisible();
+    await expect(page.locator('.patient-viewport-box canvas')).toBeVisible();
+
+    // Verify odontogram is interactive on mobile
+    const tooth11 = page.locator('button[aria-label="Diente FDI 11"]');
+    await tooth11.scrollIntoViewIfNeeded();
+    await tooth11.click();
+    await expect(tooth11).toHaveClass(/selected/);
+
+    // Verify tooth detail card shows Spanish naming
+    const title = page.locator('.tooth-detail strong');
+    await expect(title).toContainText('FDI 11');
+    await expect(title).toContainText('Incisivo Central Superior Derecho');
+
+    // Check photos card renders on mobile
+    await expect(page.locator('.patient-photos')).toBeVisible();
+  });
 });
