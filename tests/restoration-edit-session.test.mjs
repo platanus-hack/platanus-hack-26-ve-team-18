@@ -96,9 +96,25 @@ function staleGuardrails(quality, marker) {
     subcrestal.target.value = 99;
     subcrestal.target.units = 'mm';
     subcrestal.target.provenance = 'unconfirmed-case-feedback';
+    subcrestal.actual.feedbackSource = 'Synthetic stale case feedback.';
   }
   quality.guardrails.limits = [marker];
 }
+
+test('reopening rejects changed contour controls that no longer describe the saved mesh', async () => {
+  const input = await measuredFixture(), saved = copy(await createPlanningSession(input));
+  for (const change of [
+    spec => { spec.contour.cervicalScale = 1.5; },
+    spec => { spec.contour.occlusalScale = .5; },
+    spec => { spec.parameters.fixture.length += .1; },
+    spec => { spec.parameters.abutment.emergenceRadius += .1; },
+  ]) {
+    const file = copy(saved); change(file.assemblies[0].spec);
+    await assert.rejects(readPlanningSession(file, input.parts), /construction parameters|contour|stale|history/i);
+  }
+  const unchanged = await readPlanningSession(saved, input.parts);
+  assert.deepEqual(unchanged.assemblies[0].parts.map(part => part.positions), input.assemblies[0].parts.map(part => part.positions));
+});
 
 test('reopening replaces independently stale current guardrails without changing historical revisions', async () => {
   const input = await measuredFixture(), saved = copy(await createPlanningSession(input));

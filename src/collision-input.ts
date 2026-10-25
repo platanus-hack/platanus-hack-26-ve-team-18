@@ -14,6 +14,7 @@ export function prepareCollisionParts(parts: ModelPart[]): CollisionPart[] {
       const axis = i % 3;
       positions[i] -= origin[axis];
     }
-    return { id: part.id, positions, closed: part.closed };
+    return { id: part.id, positions, closed: part.closed,
+      ...(part.restoration?.assemblyId ? { assemblyId: part.restoration.assemblyId } : {}) };
   });
 }

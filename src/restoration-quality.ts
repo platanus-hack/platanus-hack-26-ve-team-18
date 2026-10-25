@@ -1,6 +1,12 @@
 import type { ArchToothSegment } from './arch-analysis';
 import type { SiteHypothesis } from './missing-sites';
 import type { RestorationFitMeasurement, RestorationMesh, RestorationSpec, RestorationSurfaceFitMeasurement } from './restoration-types';
+import { crownSupportRegion, crownTissueRegions } from './restoration-geometry.ts';
+import { measureClosedCrownPoints } from './restoration-gingiva.ts';
+import type { FixtureGingivaControl } from './restoration-gingiva.ts';
+import type { Vec3 } from './models';
+import { Vector3 } from 'three';
+import { createNearestSurfaceQuery } from './collision.ts';
 import { toothClassOf } from './crown-anatomy.ts';
 import { restorationCrownShape } from './restoration-geometry.ts';
 import { evaluateRestorationGuardrails } from './restoration-guardrails.ts';
@@ -20,9 +26,9 @@ export const RESTORATION_QUALITY_VERSION = 'restoration-quality/v1' as const;
 export const RESTORATION_QUALITY_CONTEXT_VERSION = 'restoration-quality-context/v1' as const;
 export type QualityStatus = 'pass' | 'fail' | 'unknown';
 export type QualityRuleId = 'relative-width' | 'relative-depth' | 'relative-height' | 'space-occupancy'
-  | 'proximal-contacts' | 'occlusal-contact' | 'interference' | 'conflicting-targets' | 'anatomy' | 'component-presentation';
+  | 'proximal-contacts' | 'occlusal-contact' | 'interference' | 'conflicting-targets' | 'anatomy' | 'component-presentation' | 'component-support';
 export const QUALITY_RULES: readonly QualityRuleId[] = ['relative-width', 'relative-depth', 'relative-height', 'space-occupancy',
-  'proximal-contacts', 'occlusal-contact', 'interference', 'conflicting-targets', 'anatomy', 'component-presentation'];
+  'proximal-contacts', 'occlusal-contact', 'interference', 'conflicting-targets', 'anatomy', 'component-presentation', 'component-support'];
 export type QualityProvenance = 'measured' | 'hypothesized';
 export interface QualityEvidenceValue { value: number; method: string; provenance: QualityProvenance }
 export interface QualityNeighborEvidence {
@@ -127,6 +133,59 @@ export interface RestorationQualityReport {
   guardrails?: RestorationGuardrailReport;
 }
 
+/** Additive required check. Old reports remain readable but never acquire a
+ * support pass merely because the former presentation heuristics passed. */
+export function unmeasuredPilarCrownSupport(reason = 'The independent emitted pilar/crown-support audit has not completed for this geometry.'): QualityCriterion {
+  return { id: 'component-support', status: 'unknown', reasons: [reason], measured: {
+    supportSamples: null, enclosedSamples: null, outsideSamples: null, unknownSamples: null,
+    sampledMinInternalClearance: null, sampledMaxOutsideDistance: null, numericTolerance: null,
+    seatingDatum: null, supportTop: null,
+  } };
+}
+
+/** Worker-only cooperative measurement. No gum, nominal radius or nearest
+ * normal substitutes for containment of the actual emitted support samples. */
+export async function measurePilarCrownSupport(input: Pick<RestorationQualityInput, 'spec' | 'components'>,
+  control: FixtureGingivaControl = {}): Promise<QualityCriterion> {
+  const result = unmeasuredPilarCrownSupport();
+  const pillars = input.components.filter(mesh => mesh.component === 'abutment');
+  const crowns = input.components.filter(mesh => mesh.component === 'crown');
+  const pillar = pillars.length === 1 ? pillars[0] : undefined;
+  if (!pillar?.closed || !pillar.positions.length || pillar.positions.length % 9 || !pillar.positions.every(Number.isFinite)) {
+    result.reasons = ['Missing, open, duplicate or invalid emitted pilar; support is unknown.']; return result;
+  }
+  const region = crownSupportRegion(input.spec, pillar);
+  const points: Vec3[] = [];
+  for (let i = 0; i < region.positions.length; i += 3) points.push([region.positions[i], region.positions[i + 1], region.positions[i + 2]]);
+  const measured = await measureClosedCrownPoints(crowns.length === 1 ? crowns[0] : undefined, points, control, region.numericTolerance);
+  const enclosed = measured.samples.filter(sample => sample.status === 'enclosed');
+  const outside = measured.samples.filter(sample => sample.status === 'outside');
+  const unknown = measured.samples.length - enclosed.length - outside.length;
+  result.status = outside.length ? 'fail' : points.length && !unknown ? 'pass' : 'unknown';
+  result.measured = { supportSamples: points.length, enclosedSamples: enclosed.length, outsideSamples: outside.length, unknownSamples: unknown,
+    sampledMinInternalClearance: enclosed.length ? Math.min(...enclosed.map(sample => sample.distance!)) : null,
+    sampledMaxOutsideDistance: outside.length ? Math.max(...outside.map(sample => sample.distance!)) : null,
+    numericTolerance: measured.numericTolerance === null ? region.numericTolerance : Math.max(region.numericTolerance, measured.numericTolerance),
+    seatingDatum: region.seatingDatum, supportTop: region.supportTop };
+  result.reasons = [
+    `${outside.length} outside, ${enclosed.length} enclosed and ${unknown} unknown of ${points.length} distinct emitted pilar vertices strictly above the crown seating datum ${region.seatingDatum} u. The transgingival base is excluded; gum evidence is not required.`,
+    ...measured.limits,
+    'Actual closed, consistently joined, nondegenerate crown triangles; unsigned nearest-boundary distance and three agreeing non-edge ray parities. Boundary proximity, grazing, open/numeric/timeout evidence stays unknown. Intended same-assembly overlap is separate from external tooth/tissue crossings.',
+    'These are sampled enclosure and internal sample clearances only: not continuous enclosure, wall thickness, contact area, overlap volume, seating, intaglio, hardware compatibility or clinical emergence.',
+  ];
+  return result;
+}
+
+/** Attach only the audit measured for the caller's current emitted candidate. */
+export function applyPilarCrownSupport(report: RestorationQualityReport, support: QualityCriterion): RestorationQualityReport {
+  if (support.id !== 'component-support') throw new Error('Expected an independent pilar crown-support criterion.');
+  const criteria = [...report.criteria.filter(row => row.id !== support.id).map(row => row.id === 'component-presentation'
+    && row.measured.transgingivalBaseExcluded === 1 ? { ...row, measured: { ...row.measured,
+      sampledPilarProtrusion: support.status === 'pass' ? 0 : support.measured.sampledMaxOutsideDistance } } : row), support];
+  return { ...report, criteria, status: criteria.some(row => row.status === 'fail') ? 'fail'
+    : criteria.every(row => row.status === 'pass') ? 'pass' : 'unknown' };
+}
+
 type Range = [number, number];
 const UNITS = 'file units (u)' as const;
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
@@ -218,7 +277,8 @@ export function evaluateRestorationQuality(input: RestorationQualityInput): Rest
   };
   const md = neighborMean('mesiodistal'), bl = neighborMean('buccolingual'), nh = neighborMean('height');
   const gap = context?.gapWidth?.value ?? null, available = context?.availableHeight?.value ?? null;
-  const gapMeasured = context?.gapWidth?.provenance === 'measured', availableMeasured = context?.availableHeight?.provenance === 'measured';
+  const gapMeasured = context?.gapWidth?.provenance === 'measured';
+  const availableMeasured = context?.availableHeight?.provenance === 'measured' && context.bitePoseVerified === true;
   // Hard space bounds win over neighbour proportions when both are known.
   const intersect = (ranges: Range[]): Range | null => ranges.length ? [Math.max(...ranges.map(r => r[0])), Math.min(...ranges.map(r => r[1]))] : null;
   const mdRanges: Range[] = [], spaceMd = gap !== null ? [gap * tolerances.gapOccupancy[0], gap * tolerances.gapOccupancy[1]] as Range : null;
@@ -315,12 +375,15 @@ export function evaluateRestorationQuality(input: RestorationQualityInput): Rest
     else for (const side of expected) {
       const targets = sideOf(side);
       if (!targets.length) { statuses.push('unknown'); reasons.push(`No ${side} adjacent target was measured.`); measured[`${side}Excess`] = null; continue; }
-      const excess = Math.min(...targets.map(surface => surface.sampledMinDistance - surface.targetGap));
+      const excess = Math.max(...targets.map(surface => surface.sampledMinDistance - surface.targetGap));
       sideExcess[side] = excess; sideCrossing[side] = targets.some(crossing);
       measured[`${side}Excess`] = excess; measured[`${side}OpenFraction`] = excess / extents.mesiodistal;
       if (sideCrossing[side]) { statuses.push('fail'); reasons.push(`${side} overcontact: transverse triangle crossings with the adjacent surface.`); }
       else if (excess > tolerances.proximalOpenFraction * extents.mesiodistal) {
         statuses.push('fail'); reasons.push(`${side} contact open: sampled distance exceeds the ${fmt(targets[0].targetGap)} u target by ${fmt(excess)} u (${fmt(excess / extents.mesiodistal)}× MD extent; maximum ${tolerances.proximalOpenFraction}×).`);
+      } else if (targets.some(surface => !(surface.samples > 0) || !Number.isFinite(surface.sampledMinDistance)
+        || !surface.intersectionComplete || surface.transverseCrossingTriangles === undefined)) {
+        statuses.push('unknown'); reasons.push(`${side} proximity does not establish contact: samples or complete classified intersection evidence are missing.`);
       } else { statuses.push('pass'); reasons.push(`${side} contact within ${fmt(Math.max(0, excess))} u of the target gap (sampled, not contact area).`); }
     }
     for (const surface of surfaces) if (surface.role === 'adjacent' && !surface.side) reasons.push(`${surface.id} has no mesial/distal side and is not used as contact evidence.`);
@@ -360,9 +423,13 @@ export function evaluateRestorationQuality(input: RestorationQualityInput): Rest
       const openExcesses: number[] = [], gaps: number[] = [], coverages: number[] = [];
       for (const surface of antagonists) {
         const samples = surface.occlusalRaySamples ?? 0, hits = surface.occlusalRayHits ?? 0, value = surface.sampledOcclusalGap;
-        const coverageOf = samples > 0 ? hits / samples : null;
+        const validRays = Number.isSafeInteger(samples) && samples > 0 && Number.isSafeInteger(hits) && hits >= 0 && hits <= samples;
+        const coverageOf = validRays ? hits / samples : null;
         if (coverageOf !== null) coverages.push(coverageOf);
         if (crossing(surface)) { statuses.push('fail'); reasons.push(`${surface.id}: antagonist overcontact (transverse triangle crossings).`); continue; }
+        if (!surface.intersectionComplete || surface.transverseCrossingTriangles === undefined) {
+          statuses.push('unknown'); reasons.push(`${surface.id}: complete classified intersection evidence is missing; sampled proximity cannot pass contact.`);
+        }
         if (coverageOf === null || hits === 0 || typeof value !== 'number' || !Number.isFinite(value)) {
           statuses.push('unknown'); reasons.push(`${surface.id}: no forward occlusal ray reached this antagonist; misses are unknown, not clearance.`); continue;
         }
@@ -462,10 +529,15 @@ export function evaluateRestorationQuality(input: RestorationQualityInput): Rest
       if (!component) { statuses.push('fail'); reasons.push(`Missing separate ${kind} component.`); }
       else if (!component.closed) { statuses.push('fail'); reasons.push(`${kind} component is not closed.`); }
     }
-    const footprint = extents ? Math.min(extents.mesiodistal, extents.buccolingual) / 2 : null;
+    // A broad emergence collar must not inflate the body footprint and excuse
+    // an oversized pilar. Measure the anatomical body independently.
+    const crown = input.components?.find(component => component.component === 'crown');
+    const bodyExtents = crown ? measureCrownExtents(spec, [{ ...crown, positions: crownTissueRegions(spec, crown).body }]) : null;
+    const footprint = bodyExtents ? Math.min(bodyExtents.mesiodistal, bodyExtents.buccolingual) / 2 : null;
     if (footprint === null) { statuses.push('unknown'); reasons.push('No emitted crown footprint.'); }
     else {
       for (const [key, value, label] of [['abutment.radius', p.abutment.radius, 'Abutment top radius'], ['abutment.emergenceRadius', p.abutment.emergenceRadius, 'Emergence radius']] as const) {
+        if (spec.componentDesign === 'nested-support/v1' && key === 'abutment.emergenceRadius') continue;
         if (value >= footprint) {
           statuses.push('fail'); reasons.push(`${label} ${fmt(value)} u reaches the crown half-footprint ${fmt(footprint)} u; the pillar would show or overcontour.`);
           proposals.push({ parameter: key, current: value, target: footprint * .85, rule: 'component-presentation', reason: `Keep the ${label.toLowerCase()} inside the crown footprint.` });
@@ -474,6 +546,33 @@ export function evaluateRestorationQuality(input: RestorationQualityInput): Rest
       if (p.fixture.radius > footprint) {
         statuses.push('fail'); reasons.push(`Fixture radius ${fmt(p.fixture.radius)} u exceeds the crown half-footprint ${fmt(footprint)} u.`);
         proposals.push({ parameter: 'fixture.radius', current: p.fixture.radius, target: footprint * .85, rule: 'component-presentation', reason: 'Keep the generic fixture envelope within the crown footprint.' });
+      }
+    }
+    // Sample the emitted pillar against the actual cervical/collar surface.
+    // Maximum MD/BL footprint alone misses a core emerging through a narrowed
+    // cervical contour. This detects observed protrusion, not wall thickness.
+    const pillar = input.components?.find(component => component.component === 'abutment');
+    let sampledPilarProtrusion: number | null = null;
+    if (spec.componentDesign !== 'nested-support/v1' && crown?.closed && pillar?.closed && crown.positions.length && pillar.positions.length
+      && crown.positions.length % 9 === 0 && pillar.positions.length % 9 === 0
+      && crown.positions.every(Number.isFinite) && pillar.positions.every(Number.isFinite)) {
+      const nearest = createNearestSurfaceQuery(crown.positions), point = new Vector3(), hit = new Vector3(), normal = new Vector3();
+      const tolerance = Math.max(...spec.frame.origin.map(Math.abs), ...crown.dimensions, p.abutment.height) * 2 ** -20;
+      const seen = new Set<string>();
+      for (let i = 0; i < pillar.positions.length; i += 3) {
+        point.fromArray(pillar.positions, i);
+        const z = (point.x - spec.frame.origin[0]) * spec.frame.up[0] + (point.y - spec.frame.origin[1]) * spec.frame.up[1] + (point.z - spec.frame.origin[2]) * spec.frame.up[2];
+        if (z <= tolerance) continue;
+        const key = `${point.x},${point.y},${point.z}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (!Number.isFinite(nearest.nearestPoint(point, hit, normal))) continue;
+        const outside = point.sub(hit).dot(normal);
+        sampledPilarProtrusion = Math.max(sampledPilarProtrusion ?? 0, outside > tolerance ? outside : 0);
+      }
+      if (sampledPilarProtrusion !== null && sampledPilarProtrusion > 0) {
+        statuses.push('fail'); reasons.push(`Emitted pilar samples protrude ${fmt(sampledPilarProtrusion)} u through the cervical/collar surface. Reduce the pilar or revise the cervical contour; the outer body footprint cannot establish enclosure.`);
+        proposals.push({ parameter: 'abutment.radius', current: p.abutment.radius, target: p.abutment.radius * .85, rule: 'component-presentation', reason: 'Reduce observed pilar protrusion through the cervical/collar envelope.' });
       }
     }
     const slope = Math.hypot(p.abutment.angleX, p.abutment.angleY);
@@ -485,8 +584,11 @@ export function evaluateRestorationQuality(input: RestorationQualityInput): Rest
     if (gap === null) { statuses.push('unknown'); reasons.push('No gap envelope: fixture diameter relative to the space is unknown.'); }
     else if (2 * p.fixture.radius >= gap) { statuses.push('fail'); reasons.push(`Fixture diameter ${fmt(2 * p.fixture.radius)} u fills the ${fmt(gap)} u gap envelope.`); }
     else if (!gapMeasured) { statuses.push('unknown'); reasons.push('Fixture diameter fits only a hypothesized gap envelope; this cannot pass.'); }
-    if (!statuses.length || statuses.every(s => s === 'pass')) { statuses.push('pass'); reasons.push('Separate closed fixture, abutment and crown envelopes; pillar stays inside the crown footprint. Hardware compatibility and bone-safe placement remain unassessed.'); }
-    criteria.push({ id: 'component-presentation', status: combine(statuses), reasons, measured: { crownHalfFootprint: footprint, abutmentSlope: slope } });
+    if (!statuses.length || statuses.every(s => s === 'pass')) { statuses.push('pass'); reasons.push(spec.componentDesign === 'nested-support/v1'
+      ? 'Separate closed component envelopes and bounded nominal presentation. Core support is evaluated independently above the seating datum; the transgingival base need not be inside the crown.'
+      : 'Separate closed component envelopes; no pilar protrusion observed at tested vertices. Unsampled enclosure, wall thickness, hardware compatibility and bone-safe placement remain unassessed.'); }
+    criteria.push({ id: 'component-presentation', status: combine(statuses), reasons, measured: { crownHalfFootprint: footprint, abutmentSlope: slope, sampledPilarProtrusion,
+      ...(spec.componentDesign === 'nested-support/v1' ? { transgingivalBaseExcluded: 1 } : {}) } });
   }
 
   // Conflicting targets.
@@ -503,6 +605,10 @@ export function evaluateRestorationQuality(input: RestorationQualityInput): Rest
   }
 
   const { revisions, unresolved } = mergeProposals(proposals, tolerances);
+  // The independent worker audit is cooperative and must run on this exact
+  // emitted candidate before a goal snapshot or agent admission. Synchronous
+  // presentation heuristics cannot supply an enclosure pass.
+  criteria.push(unmeasuredPilarCrownSupport());
   criteria.sort((a, b) => QUALITY_RULES.indexOf(a.id) - QUALITY_RULES.indexOf(b.id));
   return { version: RESTORATION_QUALITY_VERSION, status: combine(criteria.map(c => c.status)), units: UNITS, tolerances,
     crownExtents: extents, criteria, revisions, unresolvedRevisionConflicts: unresolved, limits,

@@ -300,3 +300,4 @@
 .process-panel__ai-review summary { cursor:pointer; color:#285ec7; font-size:11px; }
 .process-panel__ai-review details p { max-height:330px; overflow:auto; margin-top:9px; }
 .process-panel__ai-review small { display:block; margin-top:10px; color:#617187; font-size:10px; }
+.process-panel > .ai-activity { width: 100%; }

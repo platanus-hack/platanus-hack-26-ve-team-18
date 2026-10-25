@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BoxGeometry, PlaneGeometry } from 'three';
-import { analyzeCollisions } from '../src/collision.ts';
+import { BoxGeometry, PlaneGeometry, Ray, Triangle, Vector3 } from 'three';
+import { analyzeCollisions, createNearestSurfaceQuery } from '../src/collision.ts';
 
 const near = (actual, expected, epsilon = 1e-6) => assert.ok(
   Math.abs(actual - expected) <= epsilon, `${actual} should be within ${epsilon} of ${expected}`);
@@ -16,6 +16,30 @@ const box = (id, size = [2, 2, 2], position = [0, 0, 0]) => fromGeometry(
   id, new BoxGeometry(...size).translate(...position), true);
 const face = (id, points, closed = false) => ({ id, positions: new Float32Array(points.flat()), closed });
 
+test('ray BVH candidates preserve every exhaustive triangle hit across directions and boundary origins', () => {
+  const parts = [box('a'), box('b', [1, 3, 2], [4, -1, 2]),
+    fromGeometry('rotated', new BoxGeometry(2, 1, 3).rotateX(.31).rotateY(-.44).translate(-3, 2, -1), true)];
+  const positions = Float32Array.from(parts.flatMap(part => Array.from(part.positions)));
+  const query = createNearestSurfaceQuery(positions), ray = new Ray(), triangle = new Triangle(), hit = new Vector3();
+  let comparedHits = 0;
+  for (const origin of [[0, 0, 0], [1, 1, 1], [-8, .13, .31], [4, -1, 2], [8, 8, 8]]) {
+    for (const axis of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, 0, -1], [1, .37, .69], [-.43, 1, .17], [.24, -.61, 1]]) {
+      ray.set(new Vector3(...origin), new Vector3(...axis).normalize());
+      const candidates = query.rayTriangleCandidates(ray.origin, ray.direction), actual = new Set(candidates);
+      assert.equal(actual.size, candidates.length);
+      for (let i = 0; i < positions.length; i += 9) {
+        triangle.a.fromArray(positions, i); triangle.b.fromArray(positions, i + 3); triangle.c.fromArray(positions, i + 6);
+        if (ray.intersectTriangle(triangle.a, triangle.b, triangle.c, false, hit)) {
+          comparedHits++; assert.ok(actual.has(i / 9), `BVH discarded hit face ${i / 9}`);
+        }
+      }
+    }
+  }
+  assert.ok(comparedHits > 20);
+  assert.ok(query.rayTriangleCandidates(new Vector3(100, 100, 100), new Vector3(1, 0, 0)).length < positions.length / 9);
+  assert.throws(() => createNearestSurfaceQuery(positions, () => { throw new Error('cancelled'); }), /cancelled/);
+});
+
 test('empty/single parts have no targets, preserve inputs and return correctly sized buffers', () => {
   const empty = analyzeCollisions([], 0.1);
   assert.deepEqual(empty.parts, []);
@@ -23,9 +47,11 @@ test('empty/single parts have no targets, preserve inputs and return correctly s
   const report = analyzeCollisions([part, face('empty', [])], 0.1);
   assert.equal(report.parts[0].distances.length, part.positions.length / 3);
   assert.equal(report.parts[0].intersecting.length, part.positions.length / 9);
+  assert.equal(report.parts[0].crossing.length, part.positions.length / 9);
   assert.ok(report.parts[0].distances.every(d => d === Infinity));
   assert.deepEqual(part.positions, before);
   assert.deepEqual(report.pairs, []);
+  assert.deepEqual(report.assemblyPairs, []);
   assert.ok(Number.isFinite(report.durationMs) && report.durationMs >= 0);
 });
 
@@ -55,6 +81,7 @@ test('intersecting closed boxes report penetration, contact faces, and maximum d
   assert.equal(report.pairs.length, 1);
   assert.ok(report.pairs[0].penetratingVertices > 0);
   assert.ok(report.pairs[0].intersectingTriangles > 0);
+  assert.ok(report.pairs[0].crossingTriangles > 0);
   assert.equal(report.pairs[0].minDistance, 0);
   near(report.pairs[0].maxDepth, 0.2);
   for (const p of report.parts) {
@@ -96,9 +123,12 @@ test('coplanar overlapping triangles, including reversed winding, flag both face
   const b = face('b', [[0.5, 0.5, 0], [0.5, 1.5, 0], [1.5, 0.5, 0]]);
   const report = analyzeCollisions([a, b], 0);
   assert.equal(report.pairs[0].intersectingTriangles, 2);
+  assert.equal(report.pairs[0].crossingTriangles, 0);
+  assert.equal(report.pairs[0].contactTriangles, 2);
   assert.equal(report.pairs[0].penetratingVertices, 0);
   assert.equal(report.pairs[0].minDistance, 0);
   assert.deepEqual(report.parts.map(p => [...p.intersecting]), [[1], [1]]);
+  assert.deepEqual(report.parts.map(p => [...p.crossing]), [[0], [0]]);
 });
 
 test('coplanar edges can cross even when all six corners are separated from the other face', () => {
@@ -106,6 +136,8 @@ test('coplanar edges can cross even when all six corners are separated from the 
   const b = face('b', [[-2, 1, 0], [0, -2, 0], [2, 1, 0]]);
   const report = analyzeCollisions([a, b], 0);
   assert.equal(report.pairs[0].intersectingTriangles, 2);
+  assert.equal(report.pairs[0].crossingTriangles, 0);
+  assert.equal(report.pairs[0].contactTriangles, 2);
   assert.equal(report.pairs[0].nearbyVertices, 0);
   assert.ok(report.parts.every(p => p.distances.every(d => d > 0)));
 });
@@ -136,6 +168,7 @@ test('crossing rods flag intersections even when every vertex is outside', () =>
   assert.equal(report.pairs[0].nearbyVertices, 0);
   assert.equal(report.pairs[0].minDistance, 0);
   assert.ok(report.parts.every(p => p.intersectingTriangles > 0 && p.distances.every(d => d > 0)));
+  assert.ok(report.parts.every(p => p.crossingTriangles > 0));
 });
 
 test('noncoplanar triangle interior crossings do not need nearby corner samples', () => {
@@ -143,6 +176,8 @@ test('noncoplanar triangle interior crossings do not need nearby corner samples'
   const b = face('b', [[0, -1, -2], [0, -1, 2], [0, 3, 1]]);
   const report = analyzeCollisions([a, b], 0.01);
   assert.equal(report.pairs[0].intersectingTriangles, 2);
+  assert.equal(report.pairs[0].crossingTriangles, 2);
+  assert.equal(report.pairs[0].contactTriangles, 0);
   assert.equal(report.pairs[0].nearbyVertices, 0);
   assert.equal(report.pairs[0].penetratingVertices, 0);
   assert.ok(report.parts.every(p => p.distances.every(d => d > 0.01)));
@@ -154,6 +189,9 @@ test('touching faces and edge/vertex contacts count as intersections, not penetr
     assert.equal(report.pairs[0].minDistance, 0);
     assert.equal(report.pairs[0].penetratingVertices, 0);
     assert.ok(report.pairs[0].intersectingTriangles > 0);
+    assert.equal(report.pairs[0].crossingTriangles, 0);
+    assert.equal(report.pairs[0].contactTriangles, report.pairs[0].intersectingTriangles);
+    assert.ok(report.parts.every(p => p.crossing.every(flag => flag === 0)));
   }
 });
 
@@ -187,7 +225,67 @@ test('degenerate faces have finite distances and do not invent separated segment
   assert.deepEqual(report.pairs, []);
   assert.ok(report.parts.every(p => p.distances.every(d => Number.isFinite(d) && d > 0)));
   const plane = face('plane', [[-2, -2, 0.5], [2, -2, 0.5], [0, 2, 0.5]]);
-  assert.equal(analyzeCollisions([segment, plane], 0).pairs[0].intersectingTriangles, 2);
+  const contact = analyzeCollisions([segment, plane], 0).pairs[0];
+  assert.equal(contact.intersectingTriangles, 2);
+  assert.equal(contact.crossingTriangles, 0);
+  assert.equal(contact.contactTriangles, 2);
+});
+
+test('plane-straddling triangles that meet only at an endpoint retain contact without crossing', () => {
+  const a = face('a', [[-1, 0, 0], [1, 0, 0], [0, 1, 0]]);
+  const b = face('b', [[0, 1, -1], [0, 1, 1], [0, 2, 0]]);
+  const edge = face('edge', [[-1, 0, 0], [1, 0, 0], [0, 0, 1]]);
+  for (const target of [b, edge]) {
+    const report = analyzeCollisions([a, target], 0);
+    assert.equal(report.pairs[0].minDistance, 0);
+    assert.equal(report.pairs[0].intersectingTriangles, 2);
+    assert.equal(report.pairs[0].crossingTriangles, 0);
+    assert.equal(report.pairs[0].contactTriangles, 2);
+  }
+});
+
+test('shallow transverse crossings survive scale, winding, pair order, and translation changes', () => {
+  const source = [[-2, -2, 0], [2, -2, 0], [0, 2, 0]];
+  const target = [[-1, -1, -1e-7], [1, -1, 1e-7], [0, 1, 1e-7]];
+  for (const scale of [1e-5, 1, 1e5]) for (const reversed of [false, true]) {
+    const mesh = (id, points) => ({ id, closed: false,
+      positions: Float64Array.from((reversed ? [...points].reverse() : points).flatMap(p => p.map((v, i) => (v + (i === 2 ? 0 : 100)) * scale))) });
+    const a = mesh('a', source), b = mesh('b', target);
+    for (const parts of [[a, b], [b, a]]) {
+      const report = analyzeCollisions(parts, 0);
+      assert.equal(report.pairs[0].crossingTriangles, 2);
+      assert.equal(report.pairs[0].contactTriangles, 0);
+      assert.ok(report.parts.every(p => p.crossing[0] === 1));
+    }
+  }
+});
+
+test('large disconnected faces do not turn a small positive file-unit gap into contact', () => {
+  const a = { id: 'a', closed: false, positions: Float64Array.of(
+    0, 0, 0, 1, 0, 0, 0, 1, 0,
+    1e8, 0, 0, 1e8 + 1, 0, 0, 1e8, 1, 0) };
+  const b = { id: 'b', closed: false, positions: Float64Array.of(0, 0, .001, 1, 0, .001, 0, 1, .001) };
+  const report = analyzeCollisions([a, b], 0);
+  assert.deepEqual(report.pairs, []);
+  near(Math.min(...report.parts[1].distances), .001, 1e-9);
+  assert.ok(report.parts.every(p => p.intersectingTriangles === 0));
+});
+
+test('same-assembly containment stays diagnostic while external crossings remain in the heatmap', () => {
+  const outer = { ...box('crown', [6, 6, 6]), assemblyId: 'one' };
+  const inner = { ...box('pilar'), assemblyId: 'one' };
+  const grouped = analyzeCollisions([outer, inner], 0);
+  assert.deepEqual(grouped.pairs, []);
+  assert.equal(grouped.assemblyPairs[0].penetratingVertices, inner.positions.length / 3);
+  assert.equal(grouped.assemblyPairs[0].maxDepth, 2);
+  assert.ok(grouped.parts.every(p => p.distances.every(d => d === Infinity) && p.penetratingVertices === 0));
+  const external = { ...box('neighbor', [2, 2, 2], [3, .3, .2]), assemblyId: 'two' };
+  const report = analyzeCollisions([outer, inner, external], 0);
+  assert.equal(report.assemblyPairs.length, 1);
+  assert.equal(report.pairs.length, 1);
+  assert.ok(report.pairs[0].crossingTriangles > 0);
+  assert.ok(report.parts[0].crossing.some(flag => flag === 1));
+  assert.ok(report.parts[1].distances.every(d => d > 0), 'the enclosed pilar measures only the external neighbor');
 });
 
 test('invalid inputs fail clearly instead of generating NaNs or corrupt BVHs', () => {
@@ -210,9 +308,11 @@ test('worker replies with matching IDs, transferable result buffers, and recover
     const source = box('a');
     globalThis.onmessage({ data: { id: 7, parts: [source, box('b')], tolerance: 0 } });
     assert.equal(response.id, 7);
-    assert.equal(transferCount, 4);
+    assert.equal(transferCount, 6);
     assert.ok(response.report.parts[0].distances instanceof Float32Array);
     assert.ok(response.report.parts[0].intersecting instanceof Uint8Array);
+    assert.ok(response.report.parts[0].crossing instanceof Uint8Array);
+    assert.deepEqual(response.report.assemblyPairs, []);
     assert.ok(source.positions.byteLength > 0);
     globalThis.onmessage({ data: { id: 8, parts: [], tolerance: -1 } });
     assert.equal(response.id, 8);

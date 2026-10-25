@@ -46,14 +46,14 @@ test('emitted crown extents are measured in the site frame, not read from parame
   const extents = measureCrownExtents(s, generateRestoration(s));
   // A 90° rotation swaps the emitted footprint even though width/depth parameters are unchanged.
   assert.ok(Math.abs(extents.mesiodistal - 4.6) < .05 && Math.abs(extents.buccolingual - 5.2) < .05, JSON.stringify(extents));
-  assert.ok(Math.abs(extents.base - 2.1) < 1e-5 && extents.top > extents.base);
+  assert.ok(Math.abs(extents.base + s.parameters.abutment.emergenceRadius * .5) < 1e-5 && extents.top > extents.base);
   assert.equal(measureCrownExtents(s, []), null);
 });
 
-test('consistent donor geometry with measured evidence passes every rule', () => {
+test('consistent donor geometry passes the former checks but awaits the independent emitted support audit', () => {
   const report = evaluate(donorSpec(), measurement(), context());
-  assert.deepEqual(report.criteria.map(criterion => [criterion.id, criterion.status]), QUALITY_RULES.map(id => [id, 'pass']));
-  assert.equal(report.status, 'pass');
+  assert.deepEqual(report.criteria.map(criterion => [criterion.id, criterion.status]), QUALITY_RULES.map(id => [id, id === 'component-support' ? 'unknown' : 'pass']));
+  assert.equal(report.status, 'unknown');
   // Engineering success does not pass clinical/anatomical dentist feedback.
   assert.equal(report.guardrails.status, 'unknown');
   assert.equal(report.guardrails.issues.find(issue => issue.id === 'anatomy').status, 'unknown');
@@ -177,10 +177,20 @@ test('pillar presentation keeps abutment and emergence inside the crown footprin
   const report = evaluate(donorSpec({}, { radius: 2.5, emergenceRadius: 2.6, angleY: 30 }), measurement(), context());
   const presentation = rule(report, 'component-presentation');
   assert.equal(presentation.status, 'fail');
-  assert.equal(presentation.reasons.length, 3);
+  assert.equal(presentation.reasons.length, 4);
   assert.ok(revision(report, 'abutment.radius').proposed < 2.5);
   assert.ok(revision(report, 'abutment.emergenceRadius').proposed < 2.6);
   assert.ok(report.revisions.length <= DEFAULT_QUALITY_TOLERANCES.maxRevisions);
+});
+
+test('a broad body footprint cannot excuse pilar protrusion through cervical narrowing', () => {
+  for (const input of [spec({}, { radius: 2 }), { ...spec({}, { radius: 1.2 }), contour: { cervicalScale: .5 } }]) {
+    const report = evaluate(input, measurement(), context());
+    const presentation = rule(report, 'component-presentation');
+    assert.equal(presentation.status, 'fail');
+    assert.ok(presentation.measured.sampledPilarProtrusion > 0);
+    assert.match(presentation.reasons.join(' '), /protrude.*cervical\/collar/);
+  }
 });
 
 test('tolerances are disclosed, configurable and validated', () => {
@@ -272,4 +282,28 @@ test('a capped intersection test with touches but no transverse crossings is unk
   assert.equal(rule(crossed, 'interference').status, 'fail');
   const other = evaluate(donorSpec(), measurement([...flanks, surface('other', 'other-tooth', { intersectingTriangles: 2, touchingOrAmbiguousTriangles: 2, intersectionComplete: false })]), context());
   assert.equal(rule(other, 'interference').status, 'fail');
+});
+
+test('close sampled gaps cannot pass contacts with incomplete or unclassified crossing evidence', () => {
+  for (const evidence of [{ intersectionComplete: false }, { transverseCrossingTriangles: undefined }, { samples: 0 }]) {
+    const report = evaluate(donorSpec(), measurement([surface('mesial', 'adjacent', { side: 'mesial', ...evidence }),
+      surface('distal', 'adjacent', { side: 'distal' }), antagonist()]), context());
+    assert.equal(rule(report, 'proximal-contacts').status, 'unknown');
+  }
+  for (const evidence of [{ intersectionComplete: false }, { transverseCrossingTriangles: undefined },
+    { occlusalRaySamples: 0 }, { occlusalRayHits: 101 }, { occlusalRaySamples: NaN }]) {
+    const report = evaluate(donorSpec(), measurement([surface('mesial', 'adjacent', { side: 'mesial' }),
+      surface('distal', 'adjacent', { side: 'distal' }), antagonist('opposing', evidence)]), context());
+    assert.equal(rule(report, 'occlusal-contact').status, 'unknown');
+    assert.notEqual(report.status, 'pass');
+  }
+});
+
+test('a close patch on one same-side target cannot hide a second open target', () => {
+  const report = evaluate(donorSpec(), measurement([surface('mesial-close', 'adjacent', { side: 'mesial', sampledMinDistance: .04 }),
+    surface('mesial-open', 'adjacent', { side: 'mesial', sampledMinDistance: .8 }),
+    surface('distal', 'adjacent', { side: 'distal' }), antagonist()]), context());
+  assert.equal(rule(report, 'proximal-contacts').status, 'fail');
+  assert.equal(rule(report, 'proximal-contacts').measured.mesialExcess, .75);
+  assert.equal(rule(report, 'conflicting-targets').status, 'fail');
 });

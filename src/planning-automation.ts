@@ -4,6 +4,10 @@ import type { ToothCase } from './tooth-types.ts';
 import type { PreparedCaseSource } from './useCasePlanning.ts';
 import { isFdiTooth, toothArch } from './teeth.ts';
 import type { SiteHypothesis } from './missing-sites.ts';
+import type { CasePreparationResult } from './case-preparation-types.ts';
+import { restorationGenerationDesignSchema, type RestorationGenerationRequest } from './restoration-generation.ts';
+import { toothClassOf } from './crown-anatomy.ts';
+import type { RestorationAssembly } from './restoration-types';
 
 export interface ProposedPlanningSite {
   fdi: number;
@@ -43,7 +47,9 @@ export function automaticConceptSites({ sites, teeth, counts, parts, result, dec
 }): SiteHypothesis[] {
   const eligible = sites.flatMap(site => {
     if (Object.hasOwn(decisions, site.id) && decisions[site.id] === null) return [];
-    if (site.kind !== 'bounded' || !site.anchor || !site.frame || !site.patchFaces.length
+    const distalDraft = site.kind === 'distal-extension' && site.fdi === null && !!site.draftIdentity
+      && site.status === 'identity-unresolved' && site.slot.count === 1 && !!site.adjacent.mesial && !site.adjacent.distal;
+    if (site.kind !== 'bounded' && !distalDraft || !site.anchor || !site.frame || !site.patchFaces.length
       || !['proposed-missing', 'identity-unresolved', 'dentist-confirmed-missing'].includes(site.status)) return [];
     const part = parts.find(part => part.id === site.partId);
     if (!part || part.role !== site.arch || site.patchFaces.some(face => face >= part.triangles || face < 0
@@ -68,6 +74,50 @@ export function automaticConceptSites({ sites, teeth, counts, parts, result, dec
       || !!(site.anchor && other.anchor && site.anchor.face === other.anchor.face
         && site.anchor.point.every((value, index) => value === other.anchor!.point[index]));
   }));
+}
+
+/** Resolve anonymous provider site handles against their original preparation,
+ * then recheck local surface eligibility. An advisory design is never executable. */
+export function aiGenerationPlan({ result, prepared, sites, teeth, counts, parts, decisions = {} }: {
+  result: CasePlanningResult; prepared: CasePreparationResult; sites: SiteHypothesis[];
+  teeth: ToothCase; counts: Record<number, number>; parts: ModelPart[]; decisions?: Record<string, number | null>;
+}): { sites: SiteHypothesis[]; requests: RestorationGenerationRequest[]; skipped: string[] } {
+  const plan: ReturnType<typeof aiGenerationPlan> = { sites: [], requests: [], skipped: [] };
+  if (result.revision !== prepared.revision || result.model === 'local-geometry') return plan;
+  const requests = result.execution?.draftRequests ?? [];
+  const duplicateIds = new Set(requests.filter((request, index) => requests.findIndex(other => other.siteId === request.siteId) !== index).map(request => request.siteId));
+  const eligible = automaticConceptSites({ sites, teeth, counts, parts, result, decisions });
+  for (const request of requests) {
+    const match = /^site-([1-9]\d*)$/.exec(request.siteId);
+    const original = match ? prepared.sites[Number(match[1]) - 1] : undefined;
+    const site = original && eligible.find(site => site.id === original.id && site.partId === original.partId);
+    const parsed = restorationGenerationDesignSchema.safeParse(request.design);
+    const siteReview = result.execution?.siteReviews?.find(review => review.siteId === request.siteId);
+    if (!site || !parsed.success || duplicateIds.has(request.siteId) || siteReview && siteReview.decision !== 'design' || !isFdiTooth(request.fdi)
+      || toothArch(request.fdi) !== site.arch || request.anatomy !== parsed.data.anatomy
+      || toothClassOf(request.fdi) !== parsed.data.anatomy || (!site.draftIdentity && site.fdi !== request.fdi)) {
+      plan.skipped.push(`${request.siteId}: AI design is incomplete, conflicting or no longer supported by the current site evidence.`);
+      continue;
+    }
+    const selected = site.draftIdentity ? { ...site, fdi: request.fdi,
+      draftIdentity: { ...site.draftIdentity, templateFdi: request.fdi,
+        basis: `AI-selected ${parsed.data.anatomy} template for a localized visual draft; patient tooth identity remains unresolved. ${request.rationale}` } } : site;
+    plan.sites.push(selected);
+    plan.requests.push({ siteId: selected.id, fdi: request.fdi, rationale: request.rationale, design: parsed.data });
+  }
+  return plan;
+}
+
+/** Design decisions also invalidate work when the preparation revision is unchanged. */
+export function planningDesignRevision(result: CasePlanningResult | null): string {
+  return JSON.stringify([result?.model ?? null, result?.execution?.draftRequests ?? [], result?.execution?.regionReviews ?? [], result?.execution?.siteReviews ?? []]);
+}
+
+/** A just-returned assessment can precede React's stale-assembly effect. Older
+ * designs must not suppress its replacement merely because the site exists. */
+export function completedConceptKeys(assemblies: RestorationAssembly[], current: CasePlanningResult | null, incoming = current): Set<string> {
+  if (planningDesignRevision(current) !== planningDesignRevision(incoming)) return new Set();
+  return new Set(assemblies.filter(assembly => !assembly.warnings.some(warning => warning.startsWith('STALE:'))).map(assembly => conceptKey(assembly.spec)));
 }
 
 /** Build reversible draft operations. Never change the saved chart or imply site geometry is ready. */

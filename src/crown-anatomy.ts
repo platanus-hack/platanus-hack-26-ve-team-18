@@ -46,6 +46,9 @@ export interface CrownShape {
   /** Normalized occlusal height per ring (rim → centre) and angle. */
   occlusal: Float32Array;
   apex: number;
+  /** Shared normalized relief plane. Absent on legacy shapes, whose controls
+   * retain their historical per-angle rim datums. */
+  reliefDatum?: number;
 }
 export interface CrownMesh {
   /** Local anatomical vertex coordinates (file units), indexed. */
@@ -128,50 +131,97 @@ export function templateShape(arch: 'upper' | 'lower', digit: number): CrownShap
   // fallback, not an inferred patient variant (Al Maarif, Dental anatomy, Lec. 10).
   // https://learning-space.uoa.edu.iq/sites/default/files/2024-10/Dental%20anatomy.%20Lec.%2010.pdf
   if (arch === 'lower' && digit === 5) shape.source.provenance += ' Second-premolar anatomy is variable; this is a two-cusp hypothesis, not the three-cusp variant.';
-  const exponent = toothClass === 'molar' ? 3.0 : toothClass === 'premolar' ? 2.3 : toothClass === 'canine' ? 2.1 : 2.6;
+  const posterior = toothClass === 'molar' || toothClass === 'premolar';
+  // Explicit normalized morphology hypotheses, not a mesh library or a fit to
+  // one reference. The same cusp fields shape the table, rim and upper wall so
+  // the cusps do not sit inside an unrelated, level peripheral band.
+  const cusps = toothClass === 'molar'
+    ? arch === 'upper'
+      ? [[0.48, 0.45, 1.0], [-0.45, 0.45, 0.9], [0.45, -0.42, 1.05], [-0.42, -0.45, digit === 7 ? 0.45 : 0.75]]
+      : digit === 6 ? [[0.5, 0.45, 1.0], [-0.05, 0.5, 0.9], [-0.55, 0.38, 0.7], [0.48, -0.42, 1.05], [-0.42, -0.42, 0.95]]
+      : [[0.48, 0.45, 1.0], [-0.45, 0.45, 0.9], [0.45, -0.42, 1.05], [-0.42, -0.45, 0.95]]
+    : toothClass === 'premolar' ? [[0, 0.45, 1], [0, -0.45, arch === 'upper' ? 0.88 : digit === 4 ? 0.45 : 0.75]] : [];
+  const cuspLobe = (theta: number) => cusps.reduce((sum, [x, y, weight]) => {
+    const delta = Math.atan2(Math.sin(theta - Math.atan2(y, x)), Math.cos(theta - Math.atan2(y, x)));
+    // Premolar cusps have broad transverse slopes. Match that angular width
+    // and give a short lingual cusp a gentler rim, so rim-relative relief
+    // controls do not split its crest into two higher flanks. The compact C2
+    // molar field stays narrower to separate its closely spaced buccal cusps.
+    const support = toothClass === 'premolar' ? 1.5 : 0.85;
+    const amplitude = toothClass === 'premolar' ? weight * weight : weight;
+    return sum + amplitude * Math.max(0, 1 - (delta / support) ** 2) ** 3;
+  }, 0);
+  const scallopHeight = toothClass === 'premolar' ? 0.13 : 0.16;
+  if (posterior) shape.source.provenance += ' Scalloped cusp-to-wall procedural morphology hypothesis; not a clinically validated reconstruction.';
+  const exponent = toothClass === 'molar' ? 3.4 : toothClass === 'premolar' ? 2.8 : toothClass === 'canine' ? 2.1 : 2.6;
+  const smooth = (value: number) => { const t = clamp(value); return t * t * (3 - 2 * t); };
+  const rimHeight = toothClass === 'incisor' ? 0.72 : toothClass === 'canine' ? 0.7 : 0.66;
   for (let a = 0; a < CROWN_THETA; a++) {
     const theta = a / CROWN_THETA * TAU, c = Math.cos(theta), s = Math.sin(theta);
     // Superellipse outline; upper molars are slightly rhomboid. Actual MD/BL
     // dimensions come from the caller, not a universal tooth-size ratio.
     let r = 1 / ((Math.abs(c) ** exponent + Math.abs(s) ** exponent) ** (1 / exponent));
+    // A small elliptical contribution keeps the contact face convex instead
+    // of leaving the superellipse's almost flat axial patch between shoulders.
+    if (posterior) r = 0.15 + 0.85 * r;
     if (toothClass === 'molar' && arch === 'upper') r *= 1 + 0.05 * Math.sin(2 * theta);
     // The lower first premolar converges lingually (Al Maarif, Lec. 9, pp. 2–3).
     // Narrow its lingual shoulders while retaining the axial size envelope.
     // This coefficient is a normalized shape hypothesis, not a clinical size.
     // https://learning-space.uoa.edu.iq/sites/default/files/2024-10/Dental%20anatomy.%20Lec.%209.pdf
-    if (arch === 'lower' && digit === 4) r *= 1 - 0.2 * Math.max(0, -s) * c * c;
+    if (arch === 'lower' && digit === 4) r *= 1 - 0.32 * Math.max(0, -s) ** 2 * c * c;
     if (toothClass === 'canine') r *= 1 - 0.08 * Math.abs(Math.sin(theta)) * (s < 0 ? 1 : 0.4);
     shape.rim[a] = r;
   }
-  // Height of contour: buccal around the cervical third, lingual around the middle third.
+  // Separate the proximal contact convexity from the lower facial height of
+  // contour. Blend angularly: switching profiles at sin(theta) = 0 makes a seam
+  // precisely where the contact should be smooth. These are illustrative,
+  // normalized proportions, not measured contact positions or clinical sizes.
   for (let a = 0; a < CROWN_THETA; a++) {
-    const theta = a / CROWN_THETA * TAU, s = Math.sin(theta);
-    const contour = s > 0 ? 0.3 : 0.48;
-    shape.rimZ[a] = toothClass === 'incisor' ? 0.72 : toothClass === 'canine' ? 0.7 : 0.66;
+    const theta = a / CROWN_THETA * TAU, c = Math.cos(theta), s = Math.sin(theta);
+    const proximal = c ** 6, facialContour = 0.39 - 0.09 * s;
+    const contour = facialContour + (0.82 - facialContour) * proximal;
+    const lobe = cuspLobe(theta);
+    shape.rimZ[a] = rimHeight + (posterior ? 0.025 * proximal + scallopHeight * lobe : 0);
     for (let j = 0; j < CROWN_WALL; j++) {
       const f = j / (CROWN_WALL - 1);
       // Cervical constriction to ~0.78, bulge at the height of contour, slight occlusal convergence.
       const bulge = f < contour ? 0.78 + 0.22 * Math.sin(Math.PI / 2 * f / contour) : 1 - 0.07 * ((f - contour) / (1 - contour)) ** 2;
       const lingualTaper = toothClass === 'incisor' && s < 0 ? 1 - 0.25 * f : 1;
-      shape.wall[j * CROWN_THETA + a] = shape.rim[a] * bulge * lingualTaper;
+      // Posterior line angles emerge above a rounded cervical outline. Keep
+      // broad softened shoulders instead of extruding one round outline or
+      // introducing sharp corners along the entire height of the crown.
+      const outline = posterior ? 1 + (shape.rim[a] - 1) * smooth(f / 0.65) : shape.rim[a];
+      // Small cusp-aligned axial volumes emerge above the unchanged rounded
+      // neck; unequal cusp weights also prevent a fourfold extruded wall.
+      const axialWeight = smooth((f - 0.2) / 0.6) * (1 - smooth((f - 0.8) / 0.2));
+      const axialLobe = posterior ? 1 + (0.012 * lobe + (toothClass === 'molar' ? 0.012 * (0.6 * c + 0.2 * s) : 0)) * axialWeight * (1 - 0.9 * proximal) : 1;
+      shape.wall[j * CROWN_THETA + a] = outline * bulge * lingualTaper * axialLobe;
     }
   }
   for (let a = 0; a < CROWN_THETA; a++) shape.rim[a] = shape.wall[(CROWN_WALL - 1) * CROWN_THETA + a];
   const relief = (x: number, y: number): number => {
     // x mesial, y buccal in the unit square. Returns normalized height above the rim level band.
     if (toothClass === 'molar') {
-      const cusps = arch === 'upper'
-        ? [[0.48, 0.45, 1.0], [-0.45, 0.45, 0.9], [0.45, -0.42, 1.05], [-0.42, -0.45, digit === 7 ? 0.45 : 0.75]]
-        : digit === 6 ? [[0.5, 0.45, 1.0], [-0.05, 0.5, 0.9], [-0.55, 0.38, 0.7], [0.48, -0.42, 1.05], [-0.42, -0.42, 0.95]]
-        : [[0.48, 0.45, 1.0], [-0.45, 0.45, 0.9], [0.45, -0.42, 1.05], [-0.42, -0.45, 0.95]];
       let h = 0;
       for (const [cx, cy, w] of cusps) h = Math.max(h, w * gauss(x - cx, y - cy, 0.34, 0.32));
       // Marginal ridges along mesial/distal edges, central fossa and fissures.
-      const marginal = 0.45 * Math.max(gauss(x - 0.82, y, 0.08, 0.55), gauss(x + 0.82, y, 0.08, 0.55));
+      const marginal = 0.62 * Math.max(gauss(x - 0.82, y, 0.08, 0.55), gauss(x + 0.82, y, 0.08, 0.55));
       // End the lower first-molar cross fissure before its middle buccal
       // cusp; carrying it to the rim splits that intended peak in two.
-      const crossFissure = arch === 'lower' && digit === 6 && y > 0 ? 0.3 * gauss(0, y, 1, 0.18) : Math.abs(y) > 0.35 ? 1 : 0.3;
-      const groove = 0.35 * gauss(0, y, 1, 0.07) * (1 - gauss(x, 0, 0.9, 1) * 0.2) + 0.25 * gauss(x, 0, 0.06, 1) * crossFissure;
+      const crossFissure = arch === 'lower' && digit === 6 && y > 0 ? 0.3 * gauss(0, y, 1, 0.18) : 0.3 + 0.7 * smooth((Math.abs(y) - 0.33) / 0.04);
+      const lower = arch === 'lower';
+      const centralY = lower ? 0.045 * Math.sin(3 * x) : 0;
+      const crossX = lower ? 0.035 * Math.sin(5 * y) : 0;
+      const grooveWidth = lower ? 0.07 * (1 + 0.18 * Math.sin(4 * x)) : 0.07;
+      let groove = 0.35 * gauss(0, y - centralY, 1, grooveWidth) * (1 - gauss(x, 0, 0.9, 1) * 0.2)
+        + 0.25 * gauss(x - crossX, 0, 0.06, 1) * crossFissure;
+      if (lower && digit === 6) {
+        // Two tapering buccal branches separate the three buccal cusp volumes,
+        // rather than cutting a straight cross through the middle cusp.
+        const branch = smooth(y / 0.18) * gauss(0, y - 0.36, 1, 0.22);
+        groove += branch * (0.10 * gauss(x - 0.08 - 0.35 * y, 0, 0.05, 1) + 0.07 * gauss(x + 0.2 + 0.33 * y, 0, 0.05, 1));
+      }
       const surface = Math.max(h, marginal) - groove - 0.25 * gauss(x, y, 0.25);
       if (arch === 'upper') {
         // The oblique ridge joins mesiolingual (+x,-y) to distobuccal (-x,+y),
@@ -193,8 +243,11 @@ export function templateShape(arch: 'upper' | 'lower', digit: number): CrownShap
     if (toothClass === 'premolar') {
       const lingualHeight = arch === 'upper' ? 0.88 : digit === 4 ? 0.45 : 0.75;
       const h = Math.max(gauss(x, y - 0.45, 0.42, 0.3), lingualHeight * gauss(x, y + 0.45, 0.42, 0.3));
-      const marginal = 0.42 * Math.max(gauss(x - 0.78, y, 0.09, 0.5), gauss(x + 0.78, y, 0.09, 0.5));
-      return Math.max(h, marginal) - 0.35 * gauss(0, y, 1, 0.08) - 0.18 * gauss(x, y, 0.22);
+      const marginal = 0.5 * Math.max(gauss(x - 0.82, y, 0.09, 0.5), gauss(x + 0.82, y, 0.09, 0.5));
+      // Keep the central fossa below the peripheral rim datums. Otherwise an
+      // angularly varying rim can amplify tiny centre-ring peaks differently
+      // from the centre vertex when additional relief is requested.
+      return Math.max(h, marginal) - 0.35 * gauss(0, y, 1, 0.08) - 0.26 * gauss(x, y, 0.22);
     }
     if (toothClass === 'canine') {
       const cusp = gauss(x - 0.05, y - 0.15, 0.3, 0.35);
@@ -208,24 +261,41 @@ export function templateShape(arch: 'upper' | 'lower', digit: number): CrownShap
     return Math.max(edge, marginal, cingulum) - 0.12 * gauss(x, y + 0.2, 0.4, 0.25);
   };
   const tableHeight = toothClass === 'incisor' ? 0.22 : toothClass === 'canine' ? 0.28 : 0.24;
+  const tableAt = (rho: number, a: number) => {
+    const theta = a / CROWN_THETA * TAU, r = shape.rim[a] * rho;
+    const edgeHeight = (posterior ? 0.025 * Math.cos(theta) ** 6 : 0) * smooth((rho - 0.65) / 0.35);
+    return rimHeight + edgeHeight + tableHeight * (0.35 * (1 - rho * rho) + relief(r * Math.cos(theta), r * Math.sin(theta)) * smooth((1 - rho) * 4));
+  };
   let apex = 0;
   for (let i = 0; i < CROWN_RINGS; i++) {
     const rho = 1 - (i + 1) / (CROWN_RINGS + 1);
     for (let a = 0; a < CROWN_THETA; a++) {
-      const theta = a / CROWN_THETA * TAU, r = shape.rim[a] * rho;
-      const x = r * Math.cos(theta), y = r * Math.sin(theta);
-      const dome = 1 - rho * rho;
-      shape.occlusal[i * CROWN_THETA + a] = shape.rimZ[a] + tableHeight * (0.35 * dome + relief(x, y) * (0.4 + 0.6 * Math.min(1, (1 - rho) * 4)));
+      const theta = a / CROWN_THETA * TAU;
+      let z = tableAt(rho, a);
+      if (posterior && rho > 0.6) {
+        // Continue the cusp slope out to the scalloped wall. Adding another
+        // raised bump here would make an outer peak and a moat behind it.
+        // Blend only the cusp sectors; proximal marginal ridges stay distinct.
+        const inner = tableAt(0.6, a), rimDatum = rimHeight + 0.025 * Math.cos(theta) ** 6;
+        const shoulder = inner + (rimDatum + scallopHeight - inner) * smooth((rho - 0.6) / 0.4);
+        z += cuspLobe(theta) * (shoulder - z);
+      }
+      shape.occlusal[i * CROWN_THETA + a] = z;
     }
   }
-  apex = shape.rimZ.reduce((sum, value) => sum + value, 0) / CROWN_THETA + tableHeight * (0.35 + relief(0, 0));
+  apex = rimHeight + tableHeight * (0.35 + relief(0, 0));
   shape.apex = apex;
   // Normalize so the highest point is z = 1.
   let top = apex;
+  for (const value of shape.rimZ) top = Math.max(top, value);
   for (const value of shape.occlusal) top = Math.max(top, value);
   for (let i = 0; i < shape.occlusal.length; i++) shape.occlusal[i] /= top;
   for (let a = 0; a < CROWN_THETA; a++) shape.rimZ[a] /= top;
   shape.apex /= top;
+  // One height transform across the table preserves its connected crests,
+  // including the centre vertex shared by every angular sector. Keeping the
+  // plane at the highest rim leaves the complete rim fixed under relief.
+  if (posterior) shape.reliefDatum = Math.max(...shape.rimZ);
   return shape;
 }
 
@@ -442,6 +512,7 @@ export function validateCrownShape(shape: CrownShape): void {
     if (!(array instanceof Float32Array) || array.length !== size || !array.every(value => Number.isFinite(value) && value > 0)) throw new Error('Crown anatomy arrays must match the finite positive topology.');
   }
   if (!Number.isFinite(shape.apex) || shape.apex <= 0) throw new Error('Crown central height must be finite and positive.');
+  if (shape.reliefDatum !== undefined && (!Number.isFinite(shape.reliefDatum) || shape.reliefDatum <= 0 || shape.reliefDatum >= 1 || shape.rimZ.some(value => value > shape.reliefDatum!))) throw new Error('Crown relief datum must be finite, below one and at or above every rim height.');
   const source = shape.source;
   if (!source || !['patient-donor', 'procedural-template'].includes(source.kind) || typeof source.provenance !== 'string' || !source.provenance.trim() || !Number.isSafeInteger(source.faceCount) || source.faceCount < 0 || typeof source.mirrored !== 'boolean') throw new Error('Crown source provenance is required.');
   if (source.kind === 'patient-donor' && (typeof source.donorPartId !== 'string' || !source.donorPartId.trim() || !Number.isSafeInteger(source.donorToothId) || source.faceCount < 60)) throw new Error('A patient donor needs source part, tooth identity and selected face count.');

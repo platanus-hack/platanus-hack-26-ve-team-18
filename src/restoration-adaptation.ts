@@ -72,10 +72,10 @@ const LIMITS = [
 function relieve(shape: CrownShape, relief: number) {
   const out = cloneShape(shape), rim = shape.rimZ, T = CROWN_THETA;
   for (let i = 0; i < out.occlusal.length; i++) {
-    const r = rim[i % T], value = shape.occlusal[i];
+    const r = shape.reliefDatum ?? rim[i % T], value = shape.occlusal[i];
     out.occlusal[i] = value + relief * Math.max(0, (value - r) / Math.max(0.05, 1 - r));
   }
-  const centre = Array.from(rim).reduce((sum, value) => sum + value, 0) / T;
+  const centre = shape.reliefDatum ?? Array.from(rim).reduce((sum, value) => sum + value, 0) / T;
   out.apex = shape.apex + relief * Math.max(0, (shape.apex - centre) / Math.max(0.05, 1 - centre));
   return { shape: out, centre };
 }
@@ -254,7 +254,7 @@ export async function planOcclusalAdaptation(spec: RestorationSpec, surfaces: Re
       if (Number.isFinite(hitDistance[i])) minimumGap = Math.min(minimumGap, hitDistance[i] - z);
       if (!displacement[i]) continue;
       adjusted++; maxReduction = Math.max(maxReduction, displacement[i]);
-      if (i < count - 1) shape.occlusal[i] = unrelieve(z / H, base.rimZ[i % T], relief);
+      if (i < count - 1) shape.occlusal[i] = unrelieve(z / H, base.reliefDatum ?? base.rimZ[i % T], relief);
       else shape.apex = unrelieve(z / H, effective.centre, relief);
     }
     shape.source = { ...shape.source, provenance: `${base.source.provenance} Local occlusal adaptation (occlusal-adaptation/v1): ${adjusted} occlusal vertices lowered by at most ${maxReduction.toPrecision(3)} u (${(maxReduction / H * 100).toFixed(1)}% body height) against forward antagonist ray hits; wall, rim and body dimensions unchanged.` };

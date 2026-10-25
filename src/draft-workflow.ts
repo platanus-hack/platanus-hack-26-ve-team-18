@@ -26,13 +26,13 @@ export function replaceIdentityCorrection(decisions: IdentityDecisions, regions:
 /** Local geometric findings remain usable when an external model is unavailable. */
 export function localPlanningResult(prepared: CasePreparationResult, parts: ModelPart[]): CasePlanningResult {
   const sourceId = (partId: string) => `scan-${parts.findIndex(part => part.id === partId) + 1}`;
-  const sites = prepared.sites.filter(site => site.status === 'proposed-missing' || site.status === 'identity-unresolved');
+  const sites = prepared.sites.filter(site => site.status === 'proposed-missing' || site.status === 'identity-unresolved' || site.kind === 'terminal');
   return {
     revision: prepared.revision, model: 'local-geometry',
     summary: `${prepared.scans.length} scans prepared, ${prepared.identities.filter(identity => identity.fdi !== null).length} tooth identity hypotheses and ${sites.length} scanned-space hypotheses. ${prepared.identities.filter(identity => identity.needsReview).length} regions need identity review. Review exceptions; clinical decisions remain pending.`,
     mappings: prepared.identities.map(identity => ({ sourceId: sourceId(identity.partId), candidateId: identity.candidateId, fdi: identity.fdi, needsReview: identity.needsReview, reason: identity.reason })),
-    findings: sites.map((site, index) => ({ id: `local-gap-${index + 1}`, fdi: site.fdi, category: 'possible-missing', title: site.fdi === null ? 'Scanned space · identity unresolved' : `Scanned space · FDI ${site.fdi}`, detail: [...site.evidence.supporting, ...site.evidence.conflicting].join(' '), evidence: [site.id], needsClinicalReview: true })),
-    actions: [], designs: sites.flatMap(site => site.fdi === null ? [] : [{ fdi: site.fdi, anatomy: toothClassOf(site.fdi), rationale: site.frameBasis }]),
+    findings: sites.map((site, index) => ({ id: `local-gap-${index + 1}`, fdi: site.fdi, category: site.kind === 'terminal' || site.kind === 'distal-extension' ? 'data-quality' : 'possible-missing', title: site.kind === 'terminal' ? `${site.arch === 'upper' ? 'Upper' : 'Lower'} terminal ridge · review coverage` : site.kind === 'distal-extension' ? 'Tentative distal-extension draft · review required' : site.fdi === null ? 'Scanned space · identity unresolved' : `Scanned space · FDI ${site.fdi}`, detail: [...site.evidence.supporting, ...site.evidence.conflicting].join(' '), evidence: [site.id], needsClinicalReview: true })),
+    actions: [], designs: sites.flatMap(site => site.fdi === null || site.kind === 'terminal' ? [] : [{ fdi: site.fdi, anatomy: toothClassOf(site.fdi), rationale: site.frameBasis }]),
     limitations: ['Local confidence is an evidence score, not calibrated clinical accuracy.', 'Surface gaps do not establish absence or implant indication. Units, bite alignment and clinical suitability require their own evidence.'],
   };
 }
@@ -54,7 +54,9 @@ export function reconcileIdentities(prepared: CasePreparationResult, result: Cas
       return { ...identity, fdi, needsReview: fdi === null, source: 'reviewed' as const, reason: fdi === null ? 'Skipped in the draft by you.' : 'Draft identity corrected by you; saved clinical records remain separate.' };
     }
     const sourceId = `scan-${parts.findIndex(part => part.id === identity.partId) + 1}`;
-    const mapping = result?.model !== 'local-geometry' ? result?.mappings.find(mapping => mapping.sourceId === sourceId && mapping.candidateId === identity.candidateId) : undefined;
+    // A validated region review has already replaced the geometric hypothesis.
+    // Legacy mapping prose must not reintroduce the superseded disagreement.
+    const mapping = identity.source !== 'ai' && result?.revision === prepared.revision && result.model !== 'local-geometry' ? result.mappings.find(mapping => mapping.sourceId === sourceId && mapping.candidateId === identity.candidateId) : undefined;
     const conflict = mapping && (mapping.fdi !== identity.fdi || mapping.needsReview);
     return { ...identity, needsReview: identity.fdi === null || identity.confidence < threshold || !!identity.blockingReasons?.length || !!conflict, reason: conflict ? `Geometry / model disagreement. ${identity.reason} Model: ${mapping.reason}` : identity.reason };
   });

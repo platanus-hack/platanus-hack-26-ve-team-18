@@ -260,9 +260,9 @@ export function createRestorationSiteProposer(parts: ModelPart[], teeth: ToothCa
     if (!(scale > 0) || !Number.isFinite(scale)) throw new Error('The site has no usable geometric scale.');
     // Editable visual envelopes only. Surface localization does not establish implant suitability.
     return {
-      version: 'implant-assembly/v1', fdi, parentPartId: anchor.partId, frame,
+      version: 'implant-assembly/v1', componentDesign: 'nested-support/v1', fdi, parentPartId: anchor.partId, frame,
       anatomy: fdi % 10 <= 2 ? 'incisor' : fdi % 10 === 3 ? 'canine' : fdi % 10 <= 5 ? 'premolar' : 'molar',
-      parameters: { fixture: { radius: scale * .2, length: scale, depth: 0, taper: .12 }, abutment: { radius: scale * .18, height: scale * .3, emergenceRadius: scale * .23, angleX: 0, angleY: 0 }, crown: { width: scale * .8, depth: scale * .75, height: scale * .6, cuspHeight: 0, rotation: 0 } },
+      parameters: { fixture: { radius: scale * .2, length: scale, depth: scale * .1, taper: .25 }, abutment: { radius: scale * .18, height: scale * .3, emergenceRadius: scale * .23, angleX: 0, angleY: 0 }, crown: { width: scale * .8, depth: scale * .75, height: scale * .6, cuspHeight: 0, rotation: 0 } },
       provenance: 'hypothesized', units: 'file units (u)', source: `${description}; bone, implant suitability and compatibility unassessed.`,
       siteEvidence: { method: record.site ? 'reviewed-surface' : 'bounded-gap', partIds: arch.map(part => part.id), fdis: archSequence(fdi), surface: anchor, ...(bounds ? { bounds: [bounds.left, bounds.right] as [number, number], slot: { index: bounds.slot, count: bounds.missing.length } } : {}) },
     };

@@ -99,7 +99,7 @@ test('collision and label overlays stay independent of natural colors and clear 
   const overlay = geometry.getAttribute('inspectionOverlay');
   assert.equal(overlay.getW(0), 1);
   assert.equal(overlay.getW(1), 0);
-  const contact = new THREE.Color('#d84d45');
+  const contact = new THREE.Color('#e8ac44');
   assert.ok(Math.abs(overlay.getX(0) - contact.r) < 1e-6);
   assert.deepEqual(Array.from(geometry.getAttribute('color').array), Array.from(source.colors));
   instance.toothView = { enabled: true, tool: 'paint', activeTooth: 11, labels: { [source.id]: new Uint8Array([11]) } };
@@ -142,14 +142,16 @@ test('mapped contacts win over tooth labels during inspection and toggle back to
     for (const [channel, value] of [[0, expected.r], [1, expected.g], [2, expected.b]]) assert.ok(Math.abs(overlay.array[vertex * 4 + channel] - value) < 1e-6);
     assert.equal(overlay.getW(vertex), 1);
   };
-  assertColor(0, '#d84d45');
+  assertColor(0, '#e8ac44');
   assertColor(1, '#e8ac44');
   assertColor(2, '#8e2438');
   instance.toothView.tool = 'paint';
   instance.paint();
   assertColor(0, '#3987df');
   instance.toothView.tool = 'inspect';
-  instance.setAnalysis({ parts: [{ id: source.id, distances: new Float32Array([Infinity, Infinity, Infinity]), intersecting: new Uint8Array([1]), maxDepth: 0 }] }, 0.5);
+  instance.setAnalysis({ parts: [{ id: source.id, distances: new Float32Array([Infinity, Infinity, Infinity]), intersecting: new Uint8Array([1]), crossing: new Uint8Array([0]), maxDepth: 0 }] }, 0.5);
+  for (let vertex = 0; vertex < 3; vertex++) assertColor(vertex, '#e8ac44');
+  instance.setAnalysis({ parts: [{ id: source.id, distances: new Float32Array([Infinity, Infinity, Infinity]), intersecting: new Uint8Array([1]), crossing: new Uint8Array([1]), maxDepth: 0 }] }, 0.5);
   for (let vertex = 0; vertex < 3; vertex++) assertColor(vertex, '#d84d45');
   instance.setAppearance(false, false, source.id);
   assertColor(0, '#3987df');

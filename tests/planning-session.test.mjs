@@ -30,6 +30,207 @@ function fixture() {
 }
 const roundtrip = value => JSON.parse(JSON.stringify(value));
 
+test('component construction profiles roundtrip without upgrading legacy shapes or prior revisions', async () => {
+  for (const componentDesign of [undefined, 'nested-support/v1']) {
+    const input = fixture(), assembly = input.assemblies[0], historical = structuredClone(assembly.spec);
+    if (componentDesign) assembly.spec.componentDesign = componentDesign;
+    assembly.previousVersions = [{ spec: historical, createdAt: assembly.createdAt, warnings: ['Legacy shape retained.'] },
+      { spec: { ...historical, componentDesign: 'nested-support/v1' }, createdAt: assembly.createdAt, warnings: ['New support profile.'] }];
+    const meshes = generateRestoration(assembly.spec);
+    assembly.parts = meshes.map(mesh => ({ ...assembly.parts.find(part => part.restoration.component === mesh.component), ...mesh }));
+    const saved = roundtrip(await createPlanningSession(input));
+    const loaded = (await readPlanningSession(saved, input.parts.map((part, i) => ({ ...part, id: `profile-${i}` })))).assemblies[0];
+    assert.equal(loaded.spec.componentDesign, componentDesign);
+    assert.equal(Object.hasOwn(loaded.spec, 'componentDesign'), componentDesign !== undefined);
+    assert.deepEqual(loaded.previousVersions.map(version => version.spec.componentDesign), [undefined, 'nested-support/v1']);
+    assert.deepEqual(loaded.parts.map(part => part.positions), assembly.parts.map(part => part.positions));
+    const mismatched = roundtrip(saved);
+    if (componentDesign) delete mismatched.assemblies[0].spec.componentDesign;
+    else mismatched.assemblies[0].spec.componentDesign = 'nested-support/v1';
+    await assert.rejects(readPlanningSession(mismatched, input.parts), /construction parameters/);
+    for (const invalid of [null, 'nested-support/v2', true]) {
+      const corrupt = roundtrip(saved); corrupt.assemblies[0].spec.componentDesign = invalid;
+      await assert.rejects(readPlanningSession(corrupt, input.parts));
+    }
+  }
+});
+
+test('saved measured support is verified while legacy quality remains historical and missing', async () => {
+  const { fitRestoration } = await import('../src/restoration-fitting.ts');
+  const { applyPilarCrownSupport, measurePilarCrownSupport } = await import('../src/restoration-quality.ts');
+  for (const legacy of [false, true]) {
+    const input = fixture(), assembly = input.assemblies[0];
+    if (!legacy) assembly.spec.componentDesign = 'nested-support/v1';
+    const result = await fitRestoration({ spec: assembly.spec, surfaces: [], options: { maxCandidates: 1 } });
+    if (!legacy) {
+      const support = await measurePilarCrownSupport(result);
+      assert.equal(support.status, 'pass');
+      result.report.quality.initial = applyPilarCrownSupport(result.report.quality.initial, support);
+      result.report.quality.final = applyPilarCrownSupport(result.report.quality.final, support);
+      result.history[0].quality = result.report.quality.final;
+    } else {
+      for (const quality of [result.report.quality.initial, result.report.quality.final, ...result.history.map(entry => entry.quality)]) {
+        quality.criteria = quality.criteria.filter(row => row.id !== 'component-support');
+        quality.status = quality.criteria.some(row => row.status === 'fail') ? 'fail' : quality.criteria.every(row => row.status === 'pass') ? 'pass' : 'unknown';
+      }
+    }
+    Object.assign(assembly, { spec: result.spec, fit: result.report, candidateHistory: result.history,
+      parts: result.components.map(mesh => ({ ...assembly.parts.find(part => part.restoration.component === mesh.component), ...mesh })) });
+    const saved = roundtrip(await createPlanningSession(input));
+    const loaded = (await readPlanningSession(saved, input.parts)).assemblies[0];
+    const support = loaded.fit.quality.final.criteria.find(row => row.id === 'component-support');
+    if (legacy) assert.equal(support, undefined, 'A reader cannot invent a support pass or measurement for historical quality.');
+    else {
+      assert.equal(support.status, 'pass');
+      const incomplete = roundtrip(saved), partial = incomplete.assemblies[0];
+      for (const quality of [partial.fit.quality.initial, partial.fit.quality.final, ...partial.candidateHistory.map(entry => entry.quality)]) {
+        const row = quality.criteria.find(row => row.id === 'component-support');
+        row.measured.enclosedSamples--; row.measured.unknownSamples++;
+        row.status = 'unknown';
+        const presentation = quality.criteria.find(row => row.id === 'component-presentation');
+        if (presentation.measured.transgingivalBaseExcluded === 1) presentation.measured.sampledPilarProtrusion = null;
+        quality.status = quality.criteria.some(row => row.status === 'fail') ? 'fail' : 'unknown';
+      }
+      const reopenedPartial = (await readPlanningSession(incomplete, input.parts)).assemblies[0];
+      assert.deepEqual(reopenedPartial.fit.quality.final.criteria.find(row => row.id === 'component-support'), partial.fit.quality.final.criteria.find(row => row.id === 'component-support'),
+        'Read-time verification cannot resolve or upgrade historical unknown samples.');
+      const early = roundtrip(incomplete), earlyAssembly = early.assemblies[0];
+      const { crownSupportRegion } = await import('../src/restoration-geometry.ts');
+      const region = crownSupportRegion(assembly.spec, assembly.parts.find(part => part.restoration.component === 'abutment'));
+      for (const quality of [earlyAssembly.fit.quality.initial, earlyAssembly.fit.quality.final, ...earlyAssembly.candidateHistory.map(entry => entry.quality)]) {
+        const row = quality.criteria.find(row => row.id === 'component-support');
+        row.measured.unknownSamples = row.measured.supportSamples;
+        row.measured.enclosedSamples = 0; row.measured.sampledMinInternalClearance = null;
+        row.measured.numericTolerance = region.numericTolerance;
+        row.reasons = ['Support audit ended before crown verification; all emitted samples remain unknown.'];
+      }
+      const reopenedEarly = (await readPlanningSession(early, input.parts)).assemblies[0];
+      assert.deepEqual(reopenedEarly.fit.quality.final.criteria.find(row => row.id === 'component-support'), earlyAssembly.fit.quality.final.criteria.find(row => row.id === 'component-support'));
+      for (const mutate of [row => { row.measured.supportTop += .1; }, row => { row.measured.enclosedSamples--; }]) {
+        const corrupt = roundtrip(saved), value = corrupt.assemblies[0];
+        for (const quality of [value.fit.quality.initial, value.fit.quality.final, ...value.candidateHistory.map(entry => entry.quality)]) mutate(quality.criteria.find(row => row.id === 'component-support'));
+        await assert.rejects(readPlanningSession(corrupt, input.parts), /quality|support/i);
+      }
+    }
+  }
+});
+
+test('older goals retain original bounds and missing support requirements through remapping', async () => {
+  const { fitRestorationToGoals } = await import('../src/restoration-goal-fitting.ts');
+  const { summarizeGoalRows } = await import('../src/restoration-goals.ts');
+  const input = fixture(), assembly = input.assemblies[0];
+  const result = await fitRestorationToGoals({ spec: assembly.spec, surfaces: [], options: { maxCandidates: 1 } }, { yieldControl: async () => {} });
+  Object.assign(assembly, { spec: result.spec, fit: result.report, candidateHistory: result.history,
+    parts: result.components.map(mesh => ({ ...assembly.parts.find(part => part.restoration.component === mesh.component), ...mesh })) });
+  const saved = roundtrip(await createPlanningSession(input)), historical = saved.assemblies[0], goal = historical.fit.goal;
+  for (const quality of [historical.fit.quality.initial, historical.fit.quality.final, ...historical.candidateHistory.map(entry => entry.quality)]) {
+    quality.criteria = quality.criteria.filter(row => row.id !== 'component-support');
+    quality.status = quality.criteria.some(row => row.status === 'fail') ? 'fail' : quality.criteria.every(row => row.status === 'pass') ? 'pass' : 'unknown';
+  }
+  for (const key of ['abutment.radius', 'abutment.emergenceRadius', 'abutment.angleX']) delete goal.bounds[key];
+  const scale = goal.contract.rows.find(row => row.id === 'relative-width')?.actual ?? historical.spec.parameters.crown.width;
+  for (const snapshot of [goal.before, goal.after, goal.contract, ...goal.attempts.map(attempt => attempt.snapshot)]) {
+    Object.assign(snapshot, summarizeGoalRows(snapshot.rows.filter(row => row.id !== 'component-support.pilar-enclosure'), scale));
+  }
+  goal.status = goal.after.status;
+  const loaded = (await readPlanningSession(saved, input.parts.map((part, i) => ({ ...part, id: `goal-support-${i}` })))).assemblies[0];
+  assert.deepEqual(loaded.fit.goal.bounds, goal.bounds);
+  assert.equal(loaded.fit.quality.final.criteria.some(row => row.id === 'component-support'), false);
+  assert.equal(loaded.fit.goal.after.rows.some(row => row.id === 'component-support.pilar-enclosure'), false);
+  assert.ok(loaded.warnings.some(warning => /Recheck geometry/.test(warning)));
+  assert.deepEqual(loaded.parts.map(part => part.positions), assembly.parts.map(part => part.positions));
+});
+
+test('shared relief datums persist while legacy crowns retain their stored construction', async () => {
+  const { restorationCrownShape } = await import('../src/restoration-geometry.ts');
+  const emitted = [];
+  for (const legacy of [false, true]) {
+    const input = fixture(), assembly = input.assemblies[0];
+    const shape = restorationCrownShape(assembly.spec);
+    if (legacy) delete shape.reliefDatum;
+    else assert.ok(shape.reliefDatum > 0);
+    assembly.spec.crownShape = shape;
+    const meshes = generateRestoration(assembly.spec);
+    assembly.parts = meshes.map(mesh => ({ ...assembly.parts.find(part => part.restoration.component === mesh.component), ...mesh }));
+    const crown = meshes.find(mesh => mesh.component === 'crown');
+    emitted.push(crown.positions);
+    const saved = roundtrip(await createPlanningSession(input));
+    const loaded = await readPlanningSession(saved, input.parts.map((part, i) => ({ ...part, id: `relief-${i}` })));
+    assert.equal(loaded.assemblies[0].spec.crownShape.reliefDatum, shape.reliefDatum);
+    assert.deepEqual(loaded.assemblies[0].parts.find(part => part.restoration.component === 'crown').positions, crown.positions);
+    if (!legacy) {
+      const invalid = roundtrip(saved);
+      invalid.assemblies[0].spec.crownShape.reliefDatum = 0.1;
+      await assert.rejects(readPlanningSession(invalid, input.parts), /relief datum/);
+    }
+  }
+  assert.notDeepEqual(emitted[0], emitted[1], 'Absent legacy data must retain its historical relief behavior.');
+});
+
+test('a neutral distal-extension concept preserves provenance and its review site through source remapping', async () => {
+  const input = fixture(), assembly = input.assemblies[0], parent = input.parts[0];
+  const measure = { value: 2, unit: 'file units (u)', method: 'Illustrative one-sided slot; review required.', provenance: 'hypothesized' };
+  const anchor = assembly.spec.siteEvidence.surface;
+  const site = { id: 'tentative-distal', arch: 'upper', partId: parent.id, fdi: null, alternatives: [],
+    kind: 'distal-extension', status: 'identity-unresolved', confidence: 0, priority: 'low',
+    draftIdentity: { templateFdi: 15, alternatives: [25], basis: 'Illustrative template; FDI unknown.' },
+    slot: { index: 0, count: 1, s: [0, 2] }, evidence: { supporting: ['Low local ridge.'], conflicting: ['Clinical review required.'] },
+    anchor, patchFaces: Uint32Array.of(1), frame: assembly.spec.frame, frameBasis: 'Source-local ridge frame.',
+    mesialSign: 1, buccalSign: 1, adjacent: { mesial: { partId: parent.id, toothId: 1, fdi: 16, confidence: 1, centroid: [1, 1, 0] }, distal: null },
+    opposing: null, contralateral: null, space: { mesiodistal: measure, buccolingual: measure, crownHeight: measure,
+      proximalGap: { ...measure, value: null, provenance: 'unknown' }, vertical: { ...measure, value: null, provenance: 'unknown' } }, questions: ['Review tooth history.'] };
+  const terminal = { ...site, id: 'terminal-review', kind: 'terminal', status: 'segmentation-unresolved', draftIdentity: undefined };
+  input.draft.prepared = { id: 1, revision: input.draft.evidence.revision, scans: input.draft.evidence.sources.map(source => ({ ...source,
+    analysis: null, numbering: null, draftLabels: new Uint8Array(parent.triangles), warnings: [] })), identities: [], sites: [terminal, site], warnings: [] };
+  assembly.spec.draftIdentity = { ...site.draftIdentity, siteId: site.id };
+  assembly.spec.siteEvidence = { ...assembly.spec.siteEvidence, method: 'distal-extension', fdis: [], slot: { index: 0, count: 1 }, bounds: site.slot.s };
+  assembly.draftSite = true;
+  const saved = roundtrip(await createPlanningSession(input));
+  const loaded = await readPlanningSession(saved, input.parts.map((part, i) => ({ ...part, id: `distal-reimported-${i}` })));
+  const restored = loaded.draft.prepared.sites.find(site => site.kind === 'distal-extension');
+  assert.equal(restored.fdi, null); assert.equal(restored.status, 'identity-unresolved');
+  assert.equal(restored.partId, 'distal-reimported-0'); assert.equal(restored.adjacent.distal, null);
+  assert.ok(loaded.draft.prepared.sites.some(site => site.kind === 'terminal' && !site.draftIdentity));
+  assert.equal(loaded.assemblies[0].spec.siteEvidence.method, 'distal-extension');
+  assert.equal(loaded.assemblies[0].spec.draftIdentity.siteId, restored.id);
+  assert.deepEqual(Object.entries(loaded.teeth.teeth).map(([fdi, tooth]) => [fdi, tooth.status]), Object.entries(input.teeth.teeth).map(([fdi, tooth]) => [fdi, tooth.status]));
+  const staleMethod = roundtrip(saved); staleMethod.assemblies[0].spec.siteEvidence.method = 'bounded-gap';
+  await assert.rejects(readPlanningSession(staleMethod, input.parts), /originating surface site/);
+});
+
+test('selected component relationship audit survives source remapping and rejects mismatched targets', async () => {
+  const { fitRestoration } = await import('../src/restoration-fitting.ts');
+  const { measureRestorationRelationships } = await import('../src/restoration-relationships.ts');
+  const input = fixture(), assembly = input.assemblies[0], parent = input.parts[0];
+  const surfaces = [{ id: `${parent.id}:neighbor`, role: 'adjacent', side: 'mesial', positions: parent.positions, targetGap: .01 }];
+  const result = await fitRestoration({ spec: assembly.spec, surfaces, options: { maxCandidates: 1 } });
+  result.report.relationships = await measureRestorationRelationships({ spec: result.spec, components: result.components, surfaces });
+  Object.assign(assembly, { spec: result.spec, fit: result.report, candidateHistory: result.history, parts: result.components.map(mesh => ({ ...assembly.parts.find(part => part.restoration.component === mesh.component), ...mesh })) });
+  const saved = roundtrip(await createPlanningSession(input));
+  const loaded = await readPlanningSession(saved, input.parts.map((part, i) => ({ ...part, id: `reimported-${i}` })));
+  const rows = loaded.assemblies[0].fit.relationships.relationships;
+  assert.equal(rows.length, 5);
+  assert.equal(rows[3].targetId, 'reimported-0:neighbor');
+  assert.equal(rows[3].id, 'fixture-to-adjacent:reimported-0:neighbor');
+  assert.equal(rows[3].sampledMinDistance, result.report.relationships.relationships[3].sampledMinDistance);
+  for (const mutate of [
+    audit => { audit.relationships[3].targetId = 'missing:neighbor'; },
+    audit => { audit.relationships.pop(); },
+    audit => { audit.relationships[0].sourceTriangles++; },
+    audit => { audit.interfaces[0].nominalOrigin[0] += .1; },
+    audit => { Object.assign(audit.relationships[0], { intersectionComplete: false, surfaceEvidence: 'none-observed' }); },
+    audit => { Object.assign(audit.relationships[0], { intersectingTriangles: 0, transverseCrossingTriangles: 0, touchingOrAmbiguousTriangles: 256, surfaceEvidence: 'none-observed' }); },
+    audit => { audit.relationships[0].samples = 4_000_000; },
+    audit => { Object.assign(audit.relationships[0], { intersectionTestedTriangles: 0, intersectionPairTests: 0, intersectingTriangles: 0, transverseCrossingTriangles: 0, touchingOrAmbiguousTriangles: 0, intersectionComplete: true, surfaceEvidence: 'none-observed' }); },
+    audit => { Object.assign(audit.interfaces[0], { sourceAxialOffset: 123, targetAxialOffset: -456, signedAxialGap: 0 }); },
+    audit => { Object.assign(audit.interfaces[0], { sourceAxialOffset: 0, targetAxialOffset: 0, sourceDistanceToNominalOrigin: 1e13, signedAxialGap: 5 }); },
+    audit => { for (const key of ['sourceAxialOffset','targetAxialOffset','signedAxialGap','sourceDistanceToNominalOrigin','targetDistanceToNominalOrigin']) audit.interfaces[0][key] = null; },
+  ]) {
+    const invalid = roundtrip(saved); mutate(invalid.assemblies[0].fit.relationships);
+    await assert.rejects(readPlanningSession(invalid, input.parts));
+  }
+});
+
 test('independent quality checks and rejected candidates survive save/reopen without becoming a pass', async () => {
   const { fitRestoration } = await import('../src/restoration-fitting.ts');
   const input = fixture(), assembly = input.assemblies[0];
@@ -113,6 +314,23 @@ test('workflow journal and correction decisions remap with sources while measure
   assert.equal(loaded.workflow.siteDecisions['upper-reopened-0-gap-1'], 15);
   assert.equal(loaded.workflow.runs[0].status, 'partial');
   assert.equal(loaded.workflow.correctionEvents.length, 1);
+});
+
+test('AI tool evidence and unfinished calls survive session reopen without acquiring completed status', async () => {
+  const { beginWorkflow, endWorkflow } = await import('../src/case-workflow.ts');
+  const input = fixture();
+  const aiActivity = [
+    { id: 'region-inspect', name: 'inspectToothRegion', phase: 'complete', input: { sourceId: 'scan-1', candidateId: 1 }, output: { evidence: ['scan-1:C1'], status: 'available' }, durationMs: 12 },
+    { id: 'design-request', name: 'requestDraftComponents', phase: 'complete', output: { queued: true, siteId: 'site-1' } },
+    { id: 'review:edit', name: 'requestRestorationEdit', phase: 'error', output: { status: 'error', code: 'rejected' } },
+    { id: 'review:pending', name: 'getRestorationDesign', phase: 'running' },
+  ];
+  input.workflow = { step: 3, runs: [{ ...endWorkflow(beginWorkflow(input.draft.evidence.revision), 'cancelled'), aiActivity }] };
+  const loaded = await readPlanningSession(roundtrip(await createPlanningSession(input)), input.parts.map((part, i) => ({ ...part, id: `activity-${i}` })));
+  assert.deepEqual(loaded.workflow.runs[0].aiActivity, aiActivity);
+  assert.equal(loaded.workflow.runs[0].status, 'cancelled');
+  assert.equal(loaded.workflow.runs[0].aiActivity.at(-1).phase, 'running');
+  assert.equal(loaded.workflow.runs[0].tools.length, 0, 'saved requests must not become applied local work');
 });
 
 test('previous editable design revisions preserve typed anatomy, measurements and source references', async () => {

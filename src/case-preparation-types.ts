@@ -43,7 +43,7 @@ export interface PreparedIdentity {
   /** Structural exceptions that remain blocking when the score threshold changes. */
   blockingReasons?: string[];
   reason: string;
-  source: 'geometry' | 'reviewed';
+  source: 'geometry' | 'reviewed' | 'ai';
 }
 export interface PreparedCaseSource {
   partId: string;

@@ -1,0 +1,40 @@
+.restoration-floating-editor { display:flex; flex-direction:column; width:320px; max-width:100%; max-height:none; margin:0; padding:12px; border-color:#b6cce5; border-radius:12px; background:rgba(255,255,255,.97); box-shadow:0 8px 30px #23476b20,0 1px 4px #23476b14; }
+.restoration-floating-editor > :not(.restoration-floating-fields) { flex-shrink:0; }
+.restoration-floating-fields { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:2px; }
+.restoration-floating-header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.restoration-floating-header > div { display:grid; gap:3px; }
+.restoration-floating-header strong { font-size:13px; color:#294564; }
+.restoration-floating-header span { font-size:10px; color:#617187; }
+.restoration-floating-header > button { width:28px; height:28px; min-height:0; padding:0; font-size:18px; }
+.restoration-floating-selection { margin-top:8px; width:100%; min-width:0; border:1px solid #cbd9e8; border-radius:5px; padding:5px 7px; color:#34475d; background:#fff; font-size:11px; }
+.restoration-floating-tabs { display:flex; margin-top:10px; padding:3px; gap:3px; border-radius:7px; background:#edf3fa; }
+.restoration-floating-tabs button { flex:1; min-height:27px; padding:4px 8px; border-color:transparent; background:transparent; color:#5a718c; }
+.restoration-floating-tabs button[aria-pressed="true"] { background:#fff; border-color:#d3e0ef; color:#285ec7; box-shadow:0 1px 3px #23476b12; }
+.restoration-floating-sections { display:flex; gap:10px; margin:7px 0 9px; border-bottom:1px solid #e1e9f2; }
+.restoration-floating-sections button { padding:6px 0; min-height:26px; border:0; border-bottom:2px solid transparent; border-radius:0; color:#617187; background:transparent; font-size:10px; }
+.restoration-floating-sections button[aria-pressed="true"] { border-bottom-color:#417ac1; color:#285ec7; }
+.restoration-floating-fields .restoration-adjust { margin:0; }
+.restoration-floating-fields fieldset { margin:0; }
+.restoration-floating-fields legend { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+.restoration-floating-fields .restoration-fields { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px 9px; }
+.restoration-floating-fields .restoration-fields label > span { align-items:flex-start; font-size:10px; line-height:1.35; }
+.restoration-floating-fields .restoration-fields input, .restoration-floating-fields .restoration-fields select { padding:5px 7px; min-height:28px; }
+.restoration-floating-fields .restoration-fields input[type="color"] { height:28px; padding:2px; }
+.restoration-floating-fields button[type="submit"] { width:100%; margin-top:8px; color:#285ec7; border-color:#a9c7e9; background:#eef6ff; }
+.restoration-control-note { margin-top:7px; font-size:10px; }
+.restoration-control-note > summary { padding:2px 0; color:#617187; }
+.restoration-floating-feedback { margin-top:8px; font-size:10px; line-height:1.4; color:#617187; }
+.restoration-floating-checks { margin-top:8px; color:#52677e; font-size:10px; }
+.restoration-floating-checks summary { cursor:pointer; color:#294564; }
+.restoration-floating-checks ul { max-height:160px; overflow:auto; padding-left:15px; margin:7px 0; }
+.restoration-floating-checks li { margin-bottom:8px; }
+.restoration-floating-checks li span { display:block; margin-top:3px; }
+.restoration-floating-checks p { margin:6px 0; }
+.restoration-floating-fit-actions { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+.restoration-floating-fit-actions button { padding:5px; font-size:10px; color:#285ec7; background:#eef6ff; border-color:#a9c7e9; }
+.restoration-floating-actions { display:flex; gap:7px; padding-top:9px; margin-top:9px; border-top:1px solid #e1e9f2; }
+.restoration-floating-actions button { flex:1; min-height:28px; padding:5px 7px; font-size:10px; }
+.restoration-floating-editor .restoration-error { margin:7px 0; }
+.restoration-floating-reopen { display:flex; align-items:center; gap:7px; border-color:#a9c7e9; background:#fff; color:#285ec7; box-shadow:0 4px 18px #23476b20; padding:9px 12px; white-space:nowrap; }
+.restoration-floating-reopen::before { content:''; width:7px; height:7px; border-radius:50%; background:#568bd2; }
+@media(max-width:600px) { .restoration-floating-editor { width:300px; padding:9px; } .restoration-floating-tabs { margin-top:7px; } .restoration-floating-actions { padding-top:6px; margin-top:6px; } }

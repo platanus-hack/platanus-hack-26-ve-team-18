@@ -12,6 +12,8 @@
 .planning-scene .viewport { height:calc(100dvh - 204px); min-height:530px; border-radius:14px; background:#eef3f9; }
 .planning-scene .viewport::before { opacity:.18; }
 .planning-scene { top:14px; }
+/* Sticky scenes create a stacking context; lift it with the expanded viewer. */
+.planning-scene:has(.viewport-expanded) { z-index:40; }
 .planning-scene .case-caption { padding:11px 4px; font-size:10px; }
 .planning-scene .viewport-empty h2 { font-size:29px; font-weight:450; }
 .advanced-workspace { margin:24px 0 0; padding:22px; background:#fff; border:1px solid #dce5f0; border-radius:12px; scroll-margin-top:16px; }

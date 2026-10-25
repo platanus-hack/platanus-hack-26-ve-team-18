@@ -67,19 +67,20 @@ export function createAssistantTools(snapshot: AssistantSnapshot) {
 
     getCollisionReport: readOnlyTool('getCollisionReport', noInput, () => {
       const report = current.collision;
-      const flagsKnown = report?.pairs.every(pair => (pair.intersectingTriangles ?? 0) > 0 || (pair.penetratingVertices ?? 0) > 0
-        || (pair.intersectingTriangles !== null && pair.penetratingVertices !== null));
+      const crossings = (pair: NonNullable<typeof report>['pairs'][number]) => pair.crossingTriangles ?? pair.intersectingTriangles;
+      const flagsKnown = report?.pairs.every(pair => (crossings(pair) ?? 0) > 0 || (pair.penetratingVertices ?? 0) > 0
+        || (crossings(pair) !== null && pair.penetratingVertices !== null));
       return output({
         status: report ? 'available' : 'unavailable',
         analysisState: current.analysisState,
         tolerance: current.tolerance,
         report,
         crossingOrInsidePairCount: report && flagsKnown
-          ? report.pairs.filter(pair => (pair.intersectingTriangles ?? 0) > 0 || (pair.penetratingVertices ?? 0) > 0).length
+          ? report.pairs.filter(pair => (crossings(pair) ?? 0) > 0 || (pair.penetratingVertices ?? 0) > 0).length
           : null,
         interpretation: report
           ? report.pairs.length
-            ? 'Returned pairs have crossing triangles, inside samples, or nearby vertex samples. Nearby samples alone do not establish intersection.'
+            ? 'Returned pairs have crossing triangles, contact or ambiguous touching, inside samples, or nearby vertex samples. Nearby samples alone do not establish intersection. Contact or ambiguous touching alone does not establish penetration.'
             : 'No intersections, inside samples, or nearby vertex samples were flagged at this tolerance. This does not establish exact separation or clinical clearance.'
           : 'A current collision report is unavailable. Running, paused, or unavailable analysis must not be described as clear.',
       }, [collisionLimit, 'The report covers complete visible non-reference scans; tooth isolation only affects presentation. Unlisted pairs were not flagged by this analysis, not proven clinically clear.']);

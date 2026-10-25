@@ -13,3 +13,41 @@
 .workflow-setting output { font-variant-numeric: tabular-nums; }
 .workflow-setting input:not([type=range]) { min-height: 34px; border: 1px solid #cbd5e1; padding: 6px 8px; border-radius: 5px; }
 @media (max-width: 640px) { .workflow-exception-actions button, .workflow-exception-actions select { min-height: 44px; } .workflow-space { grid-template-columns: 1fr; } .workflow-space div { display: flex; justify-content: space-between; } }
+
+.ai-activity {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #d9e5f4;
+  border-radius: 9px;
+  background: #f6f9ff;
+  color: #334d6d;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.ai-activity :is(h3, h4, p, ol, dl, dd) { margin: 0; }
+.ai-activity__header, .ai-activity__call-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.ai-activity .ai-activity__header h3 { color: #294c7d; font-size: 12px; font-weight: 650; }
+.ai-activity__header > span, .ai-activity__call-heading > span { color: #617187; font-size: 10px; font-variant-numeric: tabular-nums; }
+.ai-activity .ai-activity__status { margin-top: 6px; color: #45668f; font-size: 11px; }
+.ai-activity[data-status='attention'] .ai-activity__status { color: #856631; }
+.ai-activity[data-status='running'] .ai-activity__status::before { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #5184ce; content: ''; }
+.ai-activity__usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(135px, 100%), 1fr)); gap: 8px 12px; padding-block: 11px; margin-top: 10px !important; border-block: 1px solid #e1e9f5; font-size: 11px; }
+.ai-activity__usage dt { color: #617187; font-size: 10px; }
+.ai-activity__usage dd { margin-top: 2px; font-variant-numeric: tabular-nums; }
+.ai-activity .ai-activity__calls { display: grid; gap: 8px; max-height: 420px; padding: 0; margin-top: 11px; overflow-y: auto; overscroll-behavior: contain; list-style: none; }
+.ai-activity__call { min-width: 0; padding: 10px; border: 1px solid #e0e8f3; border-radius: 7px; background: #fff; }
+.ai-activity__call[data-phase='running'] { border-color: #b1caed; }
+.ai-activity__call[data-phase='error'] { border-color: #dfcda9; background: #fffcf6; }
+.ai-activity__call-heading strong { font-size: 11px; font-weight: 600; }
+.ai-activity .ai-activity__call-state { margin-top: 3px; color: #617187; font-size: 10px; }
+.ai-activity__details { margin-top: 7px; }
+.ai-activity__details summary { padding-block: 3px; color: #285ec7; cursor: pointer; font-size: 10px; }
+.ai-activity__details summary:focus-visible { outline: 2px solid #8db2f5; outline-offset: 3px; border-radius: 2px; }
+.ai-activity .ai-activity__tool-name { margin-top: 8px; color: #617187; font-size: 10px; }
+.ai-activity__details h4 { margin-top: 9px; font-size: 10px; font-weight: 600; }
+.ai-activity__details pre { max-height: 180px; margin: 4px 0 0; padding: 8px; border-radius: 5px; background: #f1f5fa; color: #405873; font-size: 10px; line-height: 1.6; white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; }
+.ai-activity .ai-activity__empty, .ai-activity .ai-activity__notice, .ai-activity .ai-activity__footnote { margin-top: 8px; color: #617187; font-size: 10px; }
+.workflow-review > .ai-activity { margin-block: 12px; }
+.planning-panel > .ai-activity { margin-bottom: 12px; }
+@media (max-width: 640px) { .ai-activity__details summary { padding-block: 9px; } }

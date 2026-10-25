@@ -6,7 +6,12 @@ export interface FitVerificationMeasurement extends FitIntersectionMeasurement {
   /** Target faces retained for the bounded pair audit after broadphase screening. */
   verificationRetainedTriangles: number;
 }
-export interface FitVerificationControl { check?: () => void; yieldControl?: () => Promise<void> }
+export interface FitVerificationControl {
+  check?: () => void;
+  yieldControl?: () => Promise<void>;
+  /** Optional numeric tolerance in file units; zero preserves the original audit. */
+  minimumTolerance?: number;
+}
 
 const faceBox = (positions: Float32Array, face: number, box: Box3) => {
   const o = face * 9;
@@ -51,7 +56,12 @@ const YIELD_FACES = 8192;
  * floored at the full-target value (a subset box would otherwise shrink it and
  * under-report touching contact). The existing 200k pair cap still applies.
  *
- * Output matches createFitIntersectionQuery(target, total).test(source), with:
+ * The optional minimumTolerance floors the full-target tolerance before any
+ * broadphase screening and the same floor reaches SAT. Zero preserves the
+ * original exact-Float32-surface audit; a caller-supplied floor expresses
+ * numerical ambiguity, never a clinical contact or clearance threshold.
+ *
+ * Output matches createFitIntersectionQuery(target, total, check, minimumTolerance).test(source), with:
  * - intersectionTestedTriangles: every nondegenerate target face, all of which
  *   were screened (broadphase-excluded or retained for the pair audit). Not a sample count.
  * - verificationRetainedTriangles: the subset retained for the pair audit.
@@ -60,11 +70,15 @@ const YIELD_FACES = 8192;
  * "could not complete"; callers keep their original evidence. Degenerate target
  * or source faces, or the pair cap, keep intersectionComplete false like the
  * sampled query; a fully degenerate target is an incomplete zero. Inputs are
- * never mutated.
+ * never mutated. Extreme source/target scale disparity that makes source-origin
+ * SAT subtraction lose local target precision also keeps the pair audit
+ * incomplete; agreement with the sampled query cannot prove clearance there.
  */
 export async function verifyFitIntersections(source: Float32Array, target: Float32Array, control: FitVerificationControl = {}): Promise<FitVerificationMeasurement | null> {
   const check = control.check ?? (() => {});
   check();
+  const minimumTolerance = control.minimumTolerance === undefined ? 0 : control.minimumTolerance;
+  if (!(minimumTolerance >= 0 && Number.isFinite(minimumTolerance))) throw new Error('Intersection minimum tolerance must be finite and nonnegative.');
   if (!(target instanceof Float32Array) || !target.length || target.length % 9) throw new Error('Intersection targets require finite, nonempty triangle-soup positions.');
   if (!(source instanceof Float32Array) || source.length % 9) throw new Error('Intersection source requires finite complete triangles.');
   const pause = async () => { check(); if (control.yieldControl) { await control.yieldControl(); check(); } };
@@ -92,8 +106,15 @@ export async function verifyFitIntersections(source: Float32Array, target: Float
   // Same formula and box as createFitIntersectionQuery over every target face.
   const extent = targetBox.isEmpty() ? 0 : targetBox.getSize(new Vector3()).length();
   const magnitude = targetBox.isEmpty() ? 0 : Math.max(...targetBox.min.toArray().map(Math.abs), ...targetBox.max.toArray().map(Math.abs));
-  const epsilon = Math.max(extent, magnitude) * Number.EPSILON * 64 + Number.MIN_VALUE;
+  const epsilon = Math.max(Math.max(extent, magnitude) * Number.EPSILON * 64 + Number.MIN_VALUE, minimumTolerance);
   const incomplete = targetDegenerate || sourceDegenerate;
+  const sourceExtent = sourceBox.isEmpty() ? 0 : sourceBox.getSize(new Vector3()).length();
+  const sourceMagnitude = sourceBox.isEmpty() ? 0 : Math.max(...sourceBox.min.toArray().map(Math.abs), ...sourceBox.max.toArray().map(Math.abs));
+  // SAT projects after subtracting a source vertex. If roundoff at that scale
+  // consumes even a millionth of the entire local target span, do not certify
+  // zero pair hits. This is a numerical conditioning guard, not a file-unit or
+  // clinical clearance tolerance. Disjoint exact boxes remain safe below.
+  const poorlyConditioned = Math.max(sourceExtent, sourceMagnitude) * Number.EPSILON * 64 > extent * 1e-6;
 
   // Pass 2: conservative broadphase over all target faces.
   const retained: number[] = [], retainedBox = new Box3();
@@ -121,6 +142,6 @@ export async function verifyFitIntersections(source: Float32Array, target: Float
   await pause();
   const measured = query.test(pack(source, nearby));
   check();
-  return { ...measured, intersectionTestedTriangles: targetFaces, intersectionComplete: measured.intersectionComplete && !incomplete,
+  return { ...measured, intersectionTestedTriangles: targetFaces, intersectionComplete: measured.intersectionComplete && !incomplete && !poorlyConditioned,
     verificationRetainedTriangles: retained.length };
 }

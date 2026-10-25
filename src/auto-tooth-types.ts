@@ -1,6 +1,7 @@
 import type { Vec3 } from './models';
 import type { SurfaceAnchor } from './tooth-types';
 import type { AnthropicModelId } from './anthropic-models';
+import type { PlanningRegionReview } from './planning-decisions';
 
 /** Candidate IDs describe geometry; they are deliberately independent of FDI numbers. */
 export interface AutoToothCandidate {
@@ -74,6 +75,11 @@ export interface AutoTeethPanelProps {
   autoRun: boolean;
   settings: AutoToothSettings;
   proposal: AutoToothProposalState | null;
+  /** Reviews matching the exact prepared-case revision, filtered to the active source by the parent.
+   * Case candidate IDs are independent of this panel's local proposal IDs. */
+  caseRegionSettings?: PlanningRegionReview[];
+  onInspectCaseRegion?: (candidateId: number) => void;
+  onReviewCaseRegions?: () => void;
   busy: boolean;
   processing?: boolean;
   stage: string;

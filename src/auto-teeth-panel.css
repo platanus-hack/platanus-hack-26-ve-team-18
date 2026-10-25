@@ -20,7 +20,13 @@
 .auto-teeth-fields label, .auto-teeth-selected > label { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: #617187; }
 .auto-teeth-panel :is(select, input[type='number']) { width: 100%; min-width: 0; padding: 6px 7px; border: 1px solid #d9e1ec; border-radius: 5px; background: #fff; color: #34475d; font: inherit; }
 .auto-teeth-panel input[type='range'] { width: 100%; min-width: 0; min-height: 31px; margin: 0; accent-color: #285ec7; }
-.auto-teeth-proposals, .auto-teeth-remote, .auto-teeth-gaps { margin-top: 12px; padding-top: 12px; border-top: 1px solid #dce7f5; min-width: 0; }
+.auto-teeth-proposals, .auto-teeth-remote, .auto-teeth-gaps, .auto-teeth-case-settings { margin-top: 12px; padding-top: 12px; border-top: 1px solid #dce7f5; min-width: 0; }
+.auto-teeth-case-settings > button { margin-top: 8px; }
+.auto-teeth-case-regions { display: grid; gap: 8px; max-height: 360px; overflow-y: auto; margin: 9px -3px 0; padding: 3px; list-style: none; }
+.auto-teeth-case-regions > li { min-width: 0; padding: 9px; border: 1px solid #dce7f5; border-radius: 6px; background: #fff; }
+.auto-teeth-case-regions > li > p { margin-top: 5px; }
+.auto-teeth-case-evidence { margin-top: 5px; color: #617187; }
+.auto-teeth-case-evidence ul { margin: 5px 0 0; padding-left: 18px; }
 .auto-teeth-proposals > summary { font-size: 12px; font-weight: 550; }
 .auto-teeth-proposals[open] > summary { margin-bottom: 9px; }
 .auto-teeth-candidates { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; max-height: 220px; overflow-y: auto; margin: 8px -3px 0; padding: 3px; }

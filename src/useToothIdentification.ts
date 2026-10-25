@@ -70,11 +70,13 @@ export function useToothIdentification(parts: ModelPart[], selected: string | nu
     return () => { alive.current = false; worker.current?.terminate(); clearTimeout(timer.current); };
   }, []);
 
-  function chooseTooth(code: number) {
+  function chooseTooth(code: number, partId?: string) {
     if (!isFdiTooth(code) || busy) return;
     clearDraft(); setSelectedTooth(code); setToolState('inspect'); setError(''); setIsolate(false);
     const compatible = parts.find(part => part.role === toothArch(code) && part.visible) ?? parts.find(part => part.role === toothArch(code));
-    if (active?.role !== toothArch(code) && compatible) selectPart(compatible.id);
+    const exact = partId ? parts.find(part => part.id === partId && part.role === toothArch(code)) : undefined;
+    if (exact) selectPart(exact.id);
+    else if (active?.role !== toothArch(code) && compatible) selectPart(compatible.id);
   }
   function chooseTool(next: ToothTool) {
     if (busy) return;

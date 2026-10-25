@@ -135,7 +135,7 @@ test('AI SDK executes a grounded tool and streams its evidence followed by the a
   assert.equal(events.filter(event => event.type === 'text').map(event => event.text).join(''), 'No scans imported.');
   assert.equal(events.at(-1).type, 'done');
   assert.equal(model.doStreamCalls.length, 2);
-  assert.equal(model.doStreamCalls[0].toolChoice.type, 'required');
+  assert.equal(model.doStreamCalls[0].toolChoice.type, 'auto');
   assert.ok(model.doStreamCalls[1].prompt.some(message => message.role === 'tool'));
 });
 
@@ -169,7 +169,7 @@ test('AI SDK loads the main skill and progressively returns reference knowledge 
   assert.equal(events.some(event => event.type === 'error'), false);
   assert.equal(events.at(-1).type, 'done');
   assert.equal(model.doStreamCalls.length, 2);
-  assert.deepEqual(model.doStreamCalls.map(call => call.toolChoice.type), ['required', 'auto']);
+  assert.deepEqual(model.doStreamCalls.map(call => call.toolChoice.type), ['auto', 'auto']);
   assert.deepEqual(model.doStreamCalls[0].tools.map(tool => tool.name), assistantToolCatalog.filter(entry => entry.name !== 'requestTomographyView').map(entry => entry.name));
   const mainSkill = await readFile(new URL('../skills/dental-restoration-design/SKILL.md', import.meta.url), 'utf8');
   for (const call of model.doStreamCalls) {
@@ -182,7 +182,8 @@ test('AI SDK loads the main skill and progressively returns reference knowledge 
     assert.match(system, /Previous chat may describe old geometry; obtain fresh tool results/);
     assert.match(system, /Never prescribe implant diameter\/length/);
     assert.match(system, /No tools can alter a case.*generate geometry/);
-    assert.match(system, /CLI, mesh inspection.*unavailable in this host/);
+    assert.match(system, /Without that tool, provide evidence interpretation and design guidance only/);
+    assert.match(system, /Raw mesh access, coding-agent CLI execution.*clinical placement approval remain unavailable/);
   }
   const feedback = model.doStreamCalls[1].prompt.filter(message => message.role === 'tool').flatMap(message => message.content).find(part => part.toolCallId === 'guidance-1');
   assert.equal(feedback.type, 'tool-result');

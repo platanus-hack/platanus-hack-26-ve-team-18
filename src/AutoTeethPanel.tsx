@@ -3,11 +3,14 @@ import { FDI_TEETH, isFdiTooth, toothArch } from './teeth';
 import type { AutoTeethPanelProps, AutoToothDirection, AutoToothIdentificationRequest, AutoToothView } from './auto-tooth-types';
 import { ANTHROPIC_MODELS, isAnthropicModelId } from './anthropic-models';
 import { AnthropicModelSelect } from './AnthropicModelSelect';
+import { mappingDisplayIdentity, toothDisplay } from './tooth-display.ts';
 import './auto-teeth-panel.css';
 
 const count = (value: number) => value.toLocaleString();
 const imageSource = (view: AutoToothView) => `data:${view.mediaType};base64,${view.base64}`;
 const DIRECTIONS: AutoToothDirection[] = ['auto', '+x', '-x', '+y', '-y', '+z', '-z'];
+const MAX_CASE_REGION_SETTINGS = 64;
+const boundedText = (text: string, limit: number) => text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 
 function Warnings({ label, warnings }: { label: string; warnings: string[] }) {
   return warnings.length > 0 ? <details className="auto-teeth-warnings">
@@ -26,6 +29,7 @@ export function AutoTeethPanel(props: AutoTeethPanelProps) {
   const candidates = proposal?.scan.candidates ?? [];
   const selected = candidates.find(candidate => candidate.id === proposal?.selectedCandidate);
   const mapping = proposal?.mappings.find(item => item.candidateId === selected?.id);
+  const selectedDisplay = toothDisplay(mappingDisplayIdentity(mapping), `C${selected?.id ?? '?'}`, arch);
   const allowedTeeth = FDI_TEETH.filter(tooth => toothArch(tooth) === arch);
   const mappedFdi = mapping?.fdi != null && allowedTeeth.some(tooth => tooth === mapping.fdi) ? mapping.fdi : '';
   const targetTooth = mappedFdi === '' ? props.selectedTooth : Number(mappedFdi);
@@ -40,6 +44,8 @@ export function AutoTeethPanel(props: AutoTeethPanelProps) {
   const request: AutoToothIdentificationRequest | null = arch && props.patientRight && viewsReady
     ? { arch, patientRight: props.patientRight, views, candidates: geometrySummary, ...(isAnthropicModelId(props.model) ? { model: props.model } : {}) } : null;
   const canIdentify = canScan && candidates.length > 0 && props.configured === true && request !== null;
+  // These IDs belong to the canonical prepared case, never the local proposal.
+  const caseRegionSettings = (props.caseRegionSettings ?? []).slice(0, MAX_CASE_REGION_SETTINGS);
 
   return <section className="auto-teeth-panel" aria-labelledby={`${id}-heading`}>
     <div className="auto-teeth-heading">
@@ -52,7 +58,7 @@ export function AutoTeethPanel(props: AutoTeethPanelProps) {
     </div>
     <label className="auto-teeth-check"><input type="checkbox" checked={props.autoRun} disabled={props.busy}
       onChange={event => props.onAutoRun(event.currentTarget.checked)} />Scan imported arches automatically</label>
-    <p className="auto-teeth-hint">Automatic scans stay on this device. Images are sent only when you choose Identify FDI with {modelLabel}.</p>
+    <p className="auto-teeth-hint">Automatic scans stay on this device. Images are sent only when you choose Identify FDI with {modelLabel}{props.onReviewCaseRegions && ' or Review tooth regions with AI'}.</p>
     <p className="auto-teeth-context">{props.activePartName
       ? `${props.activePartName} · ${arch ? `${arch} arch` : 'set the scan role to Upper or Lower to scan'}`
       : 'Import an intraoral scan and select its Upper or Lower role to begin.'}</p>
@@ -71,29 +77,55 @@ export function AutoTeethPanel(props: AutoTeethPanelProps) {
       <p className="auto-teeth-hint">Rerun to use changed settings. Geometry proposals can include gum or split a tooth; review the boundaries.</p>
     </details>
 
+    {(caseRegionSettings.length > 0 || props.onReviewCaseRegions) && <section className="auto-teeth-case-settings" aria-labelledby={`${id}-case-settings`}>
+      <h4 id={`${id}-case-settings`}>AI case region settings</h4>
+      <p className="auto-teeth-hint">Reversible draft settings from AI case review, not reviewed clinical records. These C IDs refer to prepared case regions; separately detected regions below may have different IDs.</p>
+      <p className="auto-teeth-hint">Ambiguous or mixed regions need local boundary correction. Saved labels and exclusions stay protected; these settings do not apply saved labels.</p>
+      {caseRegionSettings.length > 0 ? <ul className="auto-teeth-case-regions" aria-label="AI case region settings">
+        {caseRegionSettings.map((review, index) => <li key={`${review.sourceId}:${review.candidateId}:${index}`}>
+          <div className="auto-teeth-row"><strong>Case region C{review.candidateId}</strong>
+            <button type="button" disabled={props.busy || !props.onInspectCaseRegion}
+              aria-label={`Inspect case region C${review.candidateId}`}
+              onClick={() => props.onInspectCaseRegion?.(review.candidateId)}>Inspect case region</button></div>
+          <p>Class: {review.classification} · Decision: {review.decision}</p>
+          <p>Provisional FDI: {review.fdi === null ? 'Unknown (null)' : `FDI ${review.fdi} · draft identity`}</p>
+          <p>Rationale: {boundedText(review.rationale, 600)}</p>
+          <details className="auto-teeth-case-evidence"><summary>Case review evidence</summary>
+            <ul>{review.evidence.slice(0, 12).map((evidence, evidenceIndex) => <li key={evidenceIndex}>{boundedText(evidence, 160)}</li>)}</ul>
+          </details>
+        </li>)}
+      </ul> : <p className="auto-teeth-empty">No AI case region settings for the active source yet.</p>}
+      {(props.caseRegionSettings?.length ?? 0) > MAX_CASE_REGION_SETTINGS && <p className="auto-teeth-hint">Showing the first {MAX_CASE_REGION_SETTINGS} case region settings.</p>}
+      {props.onReviewCaseRegions && <button type="button" disabled={props.busy || props.configured !== true}
+        onClick={props.onReviewCaseRegions}>Review tooth regions with AI</button>}
+    </section>}
+
     {proposal ? <details className="auto-teeth-proposals" open={!!proposal.model}>
       <summary>Detected regions · <span className="num">{count(candidates.length)}</span> · review or correct</summary>
       <div className="auto-teeth-row"><h4>Candidate regions · <span className="num">{count(candidates.length)}</span></h4>
         <button type="button" disabled={!canScan || candidates.length === 0} onClick={props.onPickTool}>Pick detected tooth</button></div>
-      <p className="auto-teeth-hint"><span className="num">{count(proposal.scan.unassignedTriangles)} unassigned triangles</span>. Candidate IDs are geometry labels, not FDI numbers.</p>
+      <p className="auto-teeth-hint"><span className="num">{count(proposal.scan.unassignedTriangles)} unassigned triangles</span>. Available identities use FDI numbers. Draft identities remain proposals; ? means needs review. C IDs identify regions whose FDI is unknown.</p>
       {candidates.length > 0 ? <>
         <div className="auto-teeth-candidates" role="group" aria-label="Detected candidate regions">
-          {candidates.map(candidate => <button key={candidate.id} type="button" disabled={!canScan}
+          {candidates.map(candidate => {
+            const display = toothDisplay(mappingDisplayIdentity(proposal.mappings.find(item => item.candidateId === candidate.id)), `C${candidate.id}`, arch);
+            return <button key={candidate.id} type="button" disabled={!canScan}
+            title={`${display.label} · ${display.description} · region C${candidate.id}`}
             aria-pressed={candidate.id === proposal.selectedCandidate} onClick={() => props.onSelectCandidate(candidate.id)}>
-            <strong>C{candidate.id}</strong><span><span className="num">{count(candidate.faces.length)} triangles</span></span>
+            <strong>{display.label}</strong><span>{display.description}</span><span><span className="num">{count(candidate.faces.length)} triangles</span></span>
             {candidate.warnings.length > 0 && <span><span className="num">{candidate.warnings.length} warning{candidate.warnings.length === 1 ? '' : 's'}</span></span>}
-          </button>)}
+          </button>; })}
         </div>
         {selected ? <div className="auto-teeth-selected">
-          <label>Assign FDI for C{selected.id}<select value={mappedFdi} disabled={!canScan}
+          <label>{selectedDisplay.label} · assign FDI<select aria-label={`Assign FDI for region C${selected.id}`} value={mappedFdi} disabled={!canScan}
             onChange={event => props.onMapCandidate(selected.id, event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}>
             <option value="">Unknown</option>
             {allowedTeeth.map(tooth => <option key={tooth} value={tooth}>FDI <span className="num">{tooth}</span></option>)}
           </select></label>
-          {mapping ? <p><strong>{mapping.needsReview ? 'Needs review' : 'No review flag'}</strong> · {mapping.reason || 'No mapping reason provided.'}</p>
+          {mapping ? <p><strong>{selectedDisplay.description}</strong> · {mapping.reason || 'No mapping reason provided.'}</p>
             : <p>Unmapped. Choose an FDI number or leave Unknown.</p>}
           {mapping?.fdi != null && mappedFdi === '' && <p className="auto-teeth-warning">Proposed FDI <span className="num">{mapping.fdi}</span> is outside the active arch and cannot be used here.</p>}
-          <Warnings label={`C${selected.id} warnings`} warnings={selected.warnings} />
+          <Warnings label={`${selectedDisplay.label} warnings`} warnings={selected.warnings} />
           <div className="auto-teeth-actions">
             <button type="button" disabled={!canUse} onClick={() => props.onUseSelected(targetTooth)}>Use region for FDI <span className="num">{targetTooth}</span></button>
             <button type="button" disabled={!canScan} onClick={() => props.onRejectCandidate(selected.id)}>Reject region</button>
