@@ -1293,3 +1293,65 @@
   background: rgba(12, 16, 23, 0.88);
   color: var(--pat-ink);
 }
+
+/* ==========================================================================
+   Viewer Dock & HUD Dark Mode
+   ========================================================================== */
+[data-theme='dark'] .modeldock-bar {
+  background: rgba(19, 24, 34, 0.85);
+  border-color: var(--theme-border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --dock-separator-color: var(--theme-border);
+}
+
+[data-theme='dark'] .modeldock-bar .modeldock-tool {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .modeldock-bar .modeldock-tool:hover:not(:disabled) {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .modeldock-bar .modeldock-tool[aria-pressed="true"] {
+  background: var(--theme-blue-subtle);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .modeldock-popover {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='dark'] .modeldock-tooltip {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .modeldock-popnav button {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .modeldock-popnav button:hover {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .modeldock-popnav button[aria-pressed="true"] {
+  background: var(--theme-blue-subtle);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .modeldock-popzoom button {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .modeldock-popzoom button:hover:not(:disabled) {
+  background: var(--theme-surface-highlight);
+  color: var(--theme-blue);
+}

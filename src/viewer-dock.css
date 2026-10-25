@@ -21,36 +21,43 @@
 .modeldock-bar {
   display: block;
   pointer-events: auto;
-  border: 1px solid #dce4ee;
-  border-radius: 14px;
-  background: #ffffffd9;
-  box-shadow: 0 6px 22px rgba(37, 77, 138, 0.14);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  --dock-separator-color: #dce4ee;
+  border: 1px solid var(--theme-border, #dce4ee);
+  border-radius: 12px;
+  background: var(--theme-dock-bg, #ffffffd9);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  --dock-separator-color: var(--theme-border, #dce4ee);
 }
 dock-wrapper:not(:defined) { visibility: hidden; }
 .modeldock-item { position: relative; }
 .modeldock-bar .modeldock-tool {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   min-height: 0;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 9px;
+  border-radius: 7px;
   background: transparent;
-  color: #617187;
+  color: var(--theme-muted, #617187);
   cursor: pointer;
+  transition: background 0.12s, color 0.12s;
 }
-.modeldock-bar .modeldock-tool:hover:not(:disabled) { background: #e8f0fa; color: #285ec7; }
-.modeldock-bar .modeldock-tool[aria-pressed="true"] { background: #dce9fa; color: #285ec7; }
+.modeldock-bar .modeldock-tool:hover:not(:disabled) {
+  background: var(--theme-surface-elevated, #e8f0fa);
+  color: var(--theme-blue, #285ec7);
+}
+.modeldock-bar .modeldock-tool[aria-pressed="true"] {
+  background: var(--theme-blue-subtle, rgba(44, 110, 232, 0.16));
+  color: var(--theme-blue, #285ec7);
+}
 .modeldock-bar .modeldock-tool:disabled { opacity: 0.32; cursor: not-allowed; }
 .modeldock button:focus-visible,
 .modeldock input:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--theme-blue, #3b82f6);
   outline-offset: 2px;
 }
 /* Portal tooltip: positioned by JS so it never clips at the viewport edges. */
@@ -61,7 +68,11 @@ dock-wrapper:not(:defined) { visibility: hidden; }
   font-weight: 500;
   letter-spacing: 0.2px;
   line-height: 1.25;
-  color: #4c6585;
+  color: var(--theme-ink, #4c6585);
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #dce4ee);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -75,14 +86,15 @@ dock-wrapper:not(:defined) { visibility: hidden; }
   gap: 6px;
   min-width: 136px;
   padding: 8px;
-  background: #ffffff;
-  border: 1px solid #dce4ee;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #dce4ee);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(37, 77, 138, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  color: var(--theme-ink);
 }
 .modeldock-popover button:focus-visible,
 .modeldock-popover input:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--theme-blue, #3b82f6);
   outline-offset: 2px;
 }
 .modeldock-popnav { display: flex; flex-direction: column; gap: 4px; }
@@ -92,29 +104,38 @@ dock-wrapper:not(:defined) { visibility: hidden; }
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #617187;
+  color: var(--theme-muted, #617187);
   font-size: 11px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
 }
-.modeldock-popnav button:hover { background: #e8f0fa; color: #285ec7; }
-.modeldock-popnav button[aria-pressed="true"] { background: #dce9fa; color: #285ec7; }
+.modeldock-popnav button:hover {
+  background: var(--theme-surface-elevated, #e8f0fa);
+  color: var(--theme-blue, #285ec7);
+}
+.modeldock-popnav button[aria-pressed="true"] {
+  background: var(--theme-blue-subtle, rgba(44, 110, 232, 0.16));
+  color: var(--theme-blue, #285ec7);
+}
 .modeldock-popzoom { display: flex; align-items: center; gap: 6px; }
-.modeldock-popzoom span { flex: 1; font-size: 10px; color: #617187; text-align: center; }
+.modeldock-popzoom span { flex: 1; font-size: 10px; color: var(--theme-muted, #617187); text-align: center; }
 .modeldock-popzoom button {
   width: 32px;
   height: 28px;
   min-height: 0;
   padding: 0;
-  border: 1px solid #dce4ee;
+  border: 1px solid var(--theme-border, #dce4ee);
   border-radius: 7px;
-  background: #f5f8fc;
-  color: #617187;
+  background: var(--theme-surface-elevated, #f5f8fc);
+  color: var(--theme-ink, #617187);
   font-size: 13px;
   cursor: pointer;
 }
-.modeldock-popzoom button:hover:not(:disabled) { background: #e8f0fa; color: #285ec7; }
+.modeldock-popzoom button:hover:not(:disabled) {
+  background: var(--theme-surface, #e8f0fa);
+  color: var(--theme-blue, #285ec7);
+}
 .modeldock-popzoom button:disabled { opacity: 0.4; cursor: default; }
 .modeldock-popslider { display: flex; flex-direction: column; gap: 4px; min-width: 168px; }
 .modeldock-popslider label {
@@ -122,19 +143,19 @@ dock-wrapper:not(:defined) { visibility: hidden; }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: #617187;
+  color: var(--theme-muted, #617187);
   font-size: 10px;
   line-height: 1;
 }
 .modeldock-popslider label strong {
-  color: #285ec7;
+  color: var(--theme-blue, #285ec7);
   font-variant-numeric: tabular-nums;
 }
 .modeldock-popslider input[type="range"] {
   width: 100%;
   height: 14px;
   margin: 0;
-  accent-color: #3b82f6;
+  accent-color: var(--theme-blue, #3b82f6);
   cursor: pointer;
 }
 /* Scene visibility lives inside the dock; undo the floating-bar styling. */

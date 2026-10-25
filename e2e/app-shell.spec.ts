@@ -6,7 +6,7 @@ test.describe('App Shell & Navigation', () => {
 
     // Check header brand
     await expect(page.locator('.brand')).toContainText('Platanus');
-    await expect(page.locator('.brand')).toContainText('Implant planning');
+    await expect(page.locator('.brand .brand-logo-wrap')).toBeVisible();
     await expect(page.locator('.brand-mark img')).toBeVisible();
 
     // Check main actions
@@ -28,8 +28,8 @@ test.describe('App Shell & Navigation', () => {
     await expect(page.locator('.patient-header h1')).toContainText('Informe para');
     expect(page.url()).toContain('#patient');
 
-    // Switch back to Modo Doctor
-    await page.click('button:has-text("Modo Doctor")');
+    // Switch back to Modo Doctor / Visor Clínico
+    await page.click('.btn-patient-doctor');
 
     // Verify returned to Clinical Planning
     await expect(page.locator('.workspace')).toBeVisible();
