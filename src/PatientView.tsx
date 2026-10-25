@@ -89,7 +89,7 @@ export function PatientView({
   const patientName = isDemoMode ? 'Sofia M.' : 'Paciente';
   const caseId = isDemoMode ? 'PLT-2026-084' : 'CASO-ACTIVO';
   const doctorNote = isDemoMode
-    ? 'Evaluación y planificación para rehabilitación de pieza dental en sector anterosuperior (diente FDI 21). El reborde alveolar presenta adecuada disponibilidad ósea en el estudio tomográfico CBCT. Se planificó la colocación de un implante cónico de titanio biocompatible con carga diferida y la posterior confección de una corona estética de circonio anatómico con perfil de emergencia natural.'
+    ? 'Evaluación y planificación para rehabilitación de pieza dental en sector anterosuperior (diente FDI 21). Se planificó la confección de una corona estética de circonio anatómico de alta translucidez, adaptada con precisión a la línea de sonrisa, oclusión y perfil gingival.'
     : 'Planificación de tratamiento dental y rehabilitación personalizada.';
 
   const [internalSelectedFdi, setInternalSelectedFdi] = useState<number | null>(selectedFdi ?? 21);
@@ -140,16 +140,11 @@ export function PatientView({
   const activeParts = useMemo(() => {
     if (!isDemoMode) return parts;
 
-    // Generate demo 3D restoration parts (fixture, abutment, crown for FDI 21 positioned in the arch gap)
-    const demoMeshes = generateRestoration(DEMO_SPEC);
+    // Generate demo 3D restoration parts (only crown for FDI 21, implant removed)
+    const demoMeshes = generateRestoration(DEMO_SPEC).filter(mesh => mesh.component === 'crown');
     const generatedParts: ModelPart[] = demoMeshes.map(mesh => ({
       id: `demo-${mesh.component}`,
-      name:
-        mesh.component === 'crown'
-          ? 'Corona de circonio FDI 21'
-          : mesh.component === 'abutment'
-          ? 'Pilar protésico'
-          : 'Implante de titanio Ø3.8×11.5mm',
+      name: 'Corona de circonio FDI 21',
       fileName: `demo-${mesh.component}.stl`,
       positions: mesh.positions,
       normals: mesh.normals,
@@ -177,7 +172,7 @@ export function PatientView({
     for (let fdi = 11; fdi <= 48; fdi++) {
       if (fdi % 10 >= 1 && fdi % 10 <= 8) {
         if (fdi === 21) {
-          teethMap[fdi] = { status: 'missing', restoration: 'implant', note: 'Implante planificado' };
+          teethMap[fdi] = { status: 'missing', restoration: 'crown', note: 'Corona planificada' };
         } else if (fdi % 10 === 8) {
           teethMap[fdi] = { status: 'unreviewed', restoration: 'none', note: 'Tercer molar ausente' };
         } else {
@@ -201,7 +196,7 @@ export function PatientView({
   };
 
   // Selected tooth properties
-  const isSelectedPlanned = activeFdi === 21 || effectiveTeeth[activeFdi]?.restoration === 'implant';
+  const isSelectedPlanned = activeFdi === 21 || effectiveTeeth[activeFdi]?.restoration === 'crown' || effectiveTeeth[activeFdi]?.restoration === 'implant';
   const isSelectedMissing = effectiveTeeth[activeFdi]?.status === 'missing';
   const isSelectedPresent = effectiveTeeth[activeFdi]?.status === 'present';
 
@@ -326,7 +321,7 @@ export function PatientView({
                 }`}
               >
                 {isSelectedPlanned
-                  ? 'Plan de implante'
+                  ? 'Plan de corona'
                   : isSelectedMissing
                   ? 'Ausente estimado'
                   : 'Presente natural'}
@@ -334,11 +329,11 @@ export function PatientView({
             </strong>
             {isSelectedPlanned ? (
               <p className="tooth-quote">
-                “Pieza planificada para rehabilitación con implante cónico de titanio grado 4 y corona
-                anatómica de circonio estético personalizada a tu mordida.”
+                “Pieza planificada para rehabilitación estética con corona anatómica de circonio de alta
+                translucidez personalizada a tu mordida y color dental natural.”
               </p>
             ) : isSelectedMissing ? (
-              <p className="tooth-quote">“Espacio edéntulo evaluado para posible restauración protésica.”</p>
+              <p className="tooth-quote">“Espacio dental evaluado para posible restauración protésica.”</p>
             ) : (
               <p className="tooth-quote">“Diente natural sano sin necesidad de intervención invasiva.”</p>
             )}
@@ -397,15 +392,17 @@ export function PatientView({
               <span className="swatch crown" />
               Corona de circonio
             </label>
-            <label className="layer-item">
-              <input
-                type="checkbox"
-                checked={showImplant}
-                onChange={e => setShowImplant(e.target.checked)}
-              />
-              <span className="swatch implant" />
-              Implante de titanio
-            </label>
+            {activeParts.some(p => p.restoration?.component === 'fixture') && (
+              <label className="layer-item">
+                <input
+                  type="checkbox"
+                  checked={showImplant}
+                  onChange={e => setShowImplant(e.target.checked)}
+                />
+                <span className="swatch implant" />
+                Implante de titanio
+              </label>
+            )}
           </div>
         </section>
 
@@ -417,16 +414,16 @@ export function PatientView({
           </h2>
           <div className="plan-list">
             <div>
-              <strong>Implante FDI 21</strong>
-              <small>Incisivo Central Superior Izquierdo · Ø3.8 × 11.5 mm (Titanio)</small>
+              <strong>Corona Anatómica Estética FDI 21</strong>
+              <small>Incisivo Central Superior Izquierdo · Circonio de alta translucidez</small>
             </div>
             <div>
-              <strong>Pilar Protésico Anatómico</strong>
-              <small>Conexión cónica interna anti-rotacional · Altura 2.5 mm</small>
+              <strong>Alineación y Perfil de Emergencia</strong>
+              <small>Preservación de papila gingival y contacto interproximal guiado</small>
             </div>
             <div>
-              <strong>Corona Definitiva Estética</strong>
-              <small>Circonio monolítico de alta translucidez · FDI 21</small>
+              <strong>Cementación Adhesiva Biocompatible</strong>
+              <small>Fijación definitiva de alta resistencia con acabado natural</small>
             </div>
           </div>
           <p className="patient-hint">
@@ -444,22 +441,22 @@ export function PatientView({
             <div className="timeline-item done">
               <span className="step-circle">1</span>
               <div>
-                <strong>Diagnóstico Digital 3D & CBCT</strong>
-                <p>Escaneo intraoral de alta definición y verificación tomográfica completada.</p>
+                <strong>Diagnóstico Digital 3D & Escaneo Intraoral</strong>
+                <p>Escaneo intraoral de alta definición y evaluación oclusal completada.</p>
               </div>
             </div>
             <div className="timeline-item current">
               <span className="step-circle">2</span>
               <div>
-                <strong>Cirugía Guiada Mínimamente Invasiva</strong>
-                <p>Fijación del implante de titanio mediante férula quirúrgica de precisión milimétrica.</p>
+                <strong>Diseño Digital & Fabricación CAD/CAM</strong>
+                <p>Fresado robótico de precisión de la corona de circonio con caracterización estética personalizada.</p>
               </div>
             </div>
             <div className="timeline-item">
               <span className="step-circle">3</span>
               <div>
                 <strong>Corona Estética Definitiva</strong>
-                <p>Colocación de la corona de circonio translúcido con textura y color idénticos a tus dientes.</p>
+                <p>Colocación y cementación de la corona de circonio con integración biológica perfecta.</p>
               </div>
             </div>
           </div>
@@ -473,7 +470,7 @@ export function PatientView({
           </h2>
           <p className="patient-note">
             Tu odontólogo especialista ha preparado este informe digital para que conozcas cada detalle. Si
-            deseas agendar tu cita quirúrgica o hacer alguna pregunta, contáctanos directamente.
+            deseas agendar tu cita o hacer alguna pregunta sobre tu corona dental, contáctanos directamente.
           </p>
           <a
             href={`https://wa.me/?text=${whatsappMessage}`}

@@ -45,16 +45,14 @@ test.describe('Patient Consultation View', () => {
     await expect(title).toContainText('Primer Molar');
   });
 
-  test('layer toggles allow switching visibility of arches, crowns, and implants', async ({ page }) => {
+  test('layer toggles allow switching visibility of arches and crowns', async ({ page }) => {
     await page.goto('/#patient');
 
     const archToggle = page.locator('label:has-text("Tus dientes") input[type="checkbox"]');
     const crownToggle = page.locator('label:has-text("Corona de circonio") input[type="checkbox"]');
-    const implantToggle = page.locator('label:has-text("Implante de titanio") input[type="checkbox"]');
 
     await expect(archToggle).toBeChecked();
     await expect(crownToggle).toBeChecked();
-    await expect(implantToggle).toBeChecked();
 
     // Toggle off arches
     await archToggle.uncheck();
@@ -63,6 +61,10 @@ test.describe('Patient Consultation View', () => {
     // Toggle back on
     await archToggle.check();
     await expect(archToggle).toBeChecked();
+
+    // Toggle off crown
+    await crownToggle.uncheck();
+    await expect(crownToggle).not.toBeChecked();
   });
 
   test('whatsapp and sharing buttons are configured', async ({ page }) => {
