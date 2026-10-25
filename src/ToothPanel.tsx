@@ -88,7 +88,7 @@ export function ToothPanel(props: ToothPanelProps) {
       {props.viewport && <div className="tooth-scan">{props.viewport}</div>}
       {props.autoPanel && <div className="tooth-automation">{props.autoPanel}</div>}
       <div className="tooth-record">
-        <div className="tooth-selected-heading"><strong>FDI {props.selectedTooth}</strong><span>{count(assigned)} assigned triangles</span></div>
+        <div className="tooth-selected-heading"><strong>FDI {props.selectedTooth}</strong><span className="num">{count(assigned)} assigned triangles</span></div>
         <h3>{toothName(props.selectedTooth)}</h3>
         <div className="tooth-fields">
           <label>Review status<select aria-label="Review status" value={record.status} disabled={!compatibleScan || props.busy} onChange={event => setStatus(event.currentTarget.value as ToothStatus)}>
@@ -103,10 +103,10 @@ export function ToothPanel(props: ToothPanelProps) {
         <p className="tooth-hint">Statuses record your review, not a diagnosis. Zero triangles does not mean missing.</p>
         <label className="tooth-note">Note (optional)<textarea aria-label="Note (optional)" rows={2} maxLength={2000} value={record.note} disabled={!compatibleScan || props.busy} onChange={event => props.onRecord({ note: event.currentTarget.value })} /></label>
         <div className="tooth-site-detail">
-          <span>{record.site ? <><strong>Site marked</strong> · {record.site.point.map(coordinate).join(', ')} file units (original scan)</> : 'Site not marked'}</span>
+          <span>{record.site ? <><strong>Site marked</strong> · <span className="num">{record.site.point.map(coordinate).join(', ')} file units</span> (original scan)</> : 'Site not marked'}</span>
           {record.site && <button type="button" disabled={props.busy} onClick={props.onClearSite}>Remove site</button>}
         </div>
-        <button className="tooth-clear-labels" type="button" disabled={assigned === 0 || props.busy} onClick={props.onClearTooth}>Clear labels for FDI {props.selectedTooth}</button>
+        <button className="tooth-clear-labels" type="button" disabled={assigned === 0 || props.busy} onClick={props.onClearTooth}>Clear labels for FDI <span className="num">{props.selectedTooth}</span></button>
       </div>
 
       <div className="tooth-editor">
@@ -135,7 +135,7 @@ export function ToothPanel(props: ToothPanelProps) {
           {!props.enabled && <p>Turn on Show tooth labels to edit.</p>}
           {record.status === 'missing' ? <p><strong>Mark site</strong> places a dentist-marked point on the selected {arch} arch scan.</p> : <p>Mark site is available after you review a tooth as Missing.</p>}
         </div>
-        <div className="tooth-boundary-status">{props.boundaryCount} boundary points · Seed {props.hasSeed ? 'set' : 'not set'} · {count(props.draftCount)} preview triangles</div>
+        <div className="tooth-boundary-status"><span className="num">{props.boundaryCount} boundary points</span> · Seed <span className="num">{props.hasSeed ? 'set' : 'not set'}</span> · <span className="num">{count(props.draftCount)} preview triangles</span></div>
         <div className="tooth-boundary-actions">
           <button type="button" disabled={!canEdit || props.boundaryCount === 0} onClick={props.onRemoveBoundaryPoint}>Remove last point</button>
           <button type="button" disabled={props.busy || !(props.boundaryCount || props.hasSeed || props.draftCount)} onClick={props.onClearDraft}>Clear boundary / preview</button>
@@ -147,7 +147,7 @@ export function ToothPanel(props: ToothPanelProps) {
     </div>
 
     <div className="tooth-missing-sites">
-      <h3>Missing sites <span>{missing.length}</span></h3>
+      <h3>Missing sites <span className="num">{missing.length}</span></h3>
       {missing.length ? <ul>{missing.map(tooth => {
         const item = props.teeth[tooth];
         return <li key={tooth}><button type="button" disabled={props.busy} aria-pressed={tooth === props.selectedTooth} onClick={() => props.onSelect(tooth)}

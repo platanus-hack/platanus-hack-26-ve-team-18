@@ -15,6 +15,8 @@
     "@ai-sdk/anthropic": "^4.0.87",
     "ai": "^7.0.151",
     "dicom-parser": "1.8.21",
+    "dockbar": "^1.0.1",
+    "lucide-react": "^1.61.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "three": "0.186.1",

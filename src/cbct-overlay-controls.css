@@ -5,7 +5,7 @@
 .cbct-overlay-actions { display:flex; flex-wrap:wrap; align-items:flex-end; gap:7px; }
 .cbct-overlay-actions > label { font-weight:550; }
 .cbct-overlay-actions > label span { font-weight:400; color:#64748b; }
-.cbct-overlay-actions input { display:block; margin-top:4px; width:160px; padding:6px 8px; border:1px solid #cbd8e6; border-radius:6px; background:white; }
+.cbct-overlay-actions input[type=number] { display:block; margin-top:4px; width:160px; padding:6px 8px; border:1px solid #cbd8e6; border-radius:6px; background:white; }
 .cbct-overlay-controls button { font-size:11px; padding:7px 9px; }
 .cbct-overlay-controls p { margin:8px 0 0; line-height:1.5; }
 .cbct-overlay-layers { display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px; margin-top:10px; }

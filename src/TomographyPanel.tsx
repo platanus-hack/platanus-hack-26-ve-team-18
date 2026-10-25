@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { FileUp, FolderUp, Trash2 } from 'lucide-react';
 import type { ModelPart } from './models.ts';
 import type { Probe } from './viewer.ts';
 import type { TomographySeriesChoice, TomographySurface, TomographyViewSpec, TomographyVolume, Vec3 } from './tomography-types.ts';
@@ -200,10 +201,10 @@ function LoadedTomography(props: TomographyPanelProps & { volume: TomographyVolu
   }
   return <>
     <div className="tomography-volume-summary"><strong>{volume.complete ? 'Local volume' : 'Incomplete local preview'}</strong>
-      <span>{volume.dimensions.join(' × ')} voxels · spacing {volume.spacing.map(v => v.toFixed(3)).join(' × ')} mm</span>
+      <span><span className="num">{volume.dimensions.join(' × ')} voxels</span> · spacing <span className="num">{volume.spacing.map(v => v.toFixed(3)).join(' × ')} mm</span></span>
     </div>
-    {!volume.complete && <p className="tomography-warning">Missing source slices: {volume.missingSlices.length}. Blue checkerboard marks unavailable data. Quantitative measurements are disabled. Preview alignment only; incomplete data remains nonquantitative.</p>}
-    {volume.warnings.length > 0 && <details className="tomography-warnings"><summary>Import limits ({volume.warnings.length})</summary><ul>{volume.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
+    {!volume.complete && <p className="tomography-warning">Missing source slices: <span className="num">{volume.missingSlices.length}</span>. Blue checkerboard marks unavailable data. Quantitative measurements are disabled. Preview alignment only; incomplete data remains nonquantitative.</p>}
+    {volume.warnings.length > 0 && <details className="tomography-warnings"><summary>Import limits (<span className="num">{volume.warnings.length}</span>)</summary><ul>{volume.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
     <div className="tomography-controls">
       <fieldset><legend>Grayscale & slices</legend>
         <div className="tomography-fields">
@@ -221,9 +222,9 @@ function LoadedTomography(props: TomographyPanelProps & { volume: TomographyVolu
       </fieldset>
       <fieldset><legend>3D skull reference</legend>
         <label>Threshold (grayscale intensity)<input type="number" step="any" value={props.threshold} disabled={props.loading} onChange={event => { const v = event.currentTarget.valueAsNumber; if (Number.isFinite(v)) props.onThreshold(v); }} /></label>
-        <label>Preview stride<select value={props.stride} disabled={props.loading} onChange={event => props.onStride(Number(event.currentTarget.value))}>{[1, 2, 3, 4, 6, 8].map(value => <option value={value} key={value}>{value} voxel{value > 1 ? 's' : ''}</option>)}</select></label>
-        <p>Requested grid spacing: {volume.spacing.map(value => (value * props.stride).toFixed(3)).join(' × ')} mm. This threshold surface is a visual reference, not bone segmentation.</p>
-        {props.surface && <p>Displayed surface: threshold {props.surface.threshold}, stride {props.surface.stride}, spacing {props.surface.effectiveSpacing.map(value => value.toFixed(3)).join(' × ')} mm · {props.surface.triangles.toLocaleString()} triangles.</p>}
+        <label>Preview stride<select value={props.stride} disabled={props.loading} onChange={event => props.onStride(Number(event.currentTarget.value))}>{[1, 2, 3, 4, 6, 8].map(value => <option value={value} key={value}><span className="num">{value} voxel{value > 1 ? 's' : ''}</span></option>)}</select></label>
+        <p>Requested grid spacing: <span className="num">{volume.spacing.map(value => (value * props.stride).toFixed(3)).join(' × ')} mm</span>. This threshold surface is a visual reference, not bone segmentation.</p>
+        {props.surface && <p>Displayed surface: threshold <span className="num">{props.surface.threshold}</span>, stride <span className="num">{props.surface.stride}</span>, spacing <span className="num">{props.surface.effectiveSpacing.map(value => value.toFixed(3)).join(' × ')} mm</span> · <span className="num">{props.surface.triangles.toLocaleString()} triangles</span>.</p>}
         <label className="tomography-check"><input type="checkbox" checked={props.referenceVisible} onChange={event => props.onReferenceVisible(event.currentTarget.checked)} />Show skull reference in 3D</label>
         <label>Reference opacity<input type="range" min="0.05" max="1" step="0.05" value={props.referenceOpacity} onChange={event => props.onReferenceOpacity(Number(event.currentTarget.value))} /><output>{Math.round(props.referenceOpacity * 100)}%</output></label>
       </fieldset>
@@ -251,16 +252,16 @@ function LoadedTomography(props: TomographyPanelProps & { volume: TomographyVolu
       <button type="button" aria-pressed={!measuring} onClick={() => setMeasuring(false)}>Move crosshair</button>
       <button type="button" aria-pressed={measuring} disabled={!quantitative} onClick={() => { setMeasuring(true); setMeasurement(null); }}>Measure manual distance</button>
       {measurement && <button type="button" onClick={() => setMeasurement(null)}>Clear measurement</button>}
-      <span>{distance !== null ? `Manual distance ${distance.toFixed(2)} mm` : measuring ? 'Pick two points in one plane.' : 'Click any slice to position all planes.'}</span>
+      <span>{distance !== null ? <>Manual distance <span className="num">{distance.toFixed(2)} mm</span></> : measuring ? 'Pick two points in one plane.' : 'Click any slice to position all planes.'}</span>
     </div>
     {measuring && <p className="tomography-note">Calibrated manual picked-point distance in mm. This does not estimate bone depth, bone quality, nerve clearance, or clinical safety.</p>}
     <div className="tomography-slices">{specs.map(spec => {
       const axis = spec.plane === 'axial' ? 2 : spec.plane === 'coronal' ? 1 : 0;
       const planeMeasurement = measurement?.plane === spec.plane && measurement.b ? { a: measurement.a, b: measurement.b } : null;
       return <section className={`tomography-slice tomography-slice--${spec.plane}`} aria-label={`${spec.plane} slice`} key={spec.plane}>
-        <h3>{spec.plane[0].toUpperCase() + spec.plane.slice(1)} <small>LPS{spec.plane === 'oblique' ? ` · yaw ${yaw}° / pitch ${pitch}°` : ''}</small></h3>
+        <h3>{spec.plane[0].toUpperCase() + spec.plane.slice(1)} <small>LPS{spec.plane === 'oblique' ? <> · yaw <span className="num">{yaw}°</span> / pitch <span className="num">{pitch}°</span></> : ''}</small></h3>
         <SliceCanvas volume={volume} spec={spec} overlays={overlays} measurement={planeMeasurement} measuring={measuring} onPick={pick} />
-        {spec.plane !== 'oblique' ? <label className="tomography-slice-position">{['L', 'P', 'S'][axis]} {center[axis].toFixed(2)} mm<input type="range"
+        {spec.plane !== 'oblique' ? <label className="tomography-slice-position">{['L', 'P', 'S'][axis]} <span className="num">{center[axis].toFixed(2)} mm</span><input type="range"
           aria-label={`${spec.plane} LPS position (mm)`} min={bounds[0][axis]} max={bounds[1][axis]} step={Math.min(...volume.spacing) / 2}
           value={clamp(center[axis], bounds[0][axis], bounds[1][axis])} onChange={event => { const v = Number(event.currentTarget.value); setCenter(previous => previous.map((p, i) => i === axis ? v : p) as Vec3); setMeasurement(null); }} /></label>
           : <p className="tomography-slice-position">Centered at shared crosshair · true plane, no slab projection</p>}
@@ -279,9 +280,9 @@ function LoadedTomography(props: TomographyPanelProps & { volume: TomographyVolu
           props.onReviewRegistration?.(arch, false);
         }}>Capture 3D probe → crosshair pair</button>
       </div>
-      <p>3D source: {probeValid && props.selectedProbe ? `${formatPoint(props.selectedProbe.position)} file units` : `Select a ${arch} scan point in the 3D viewer.`}<br />CBCT target: {formatPoint(center)} LPS mm{!crosshairValid ? ' · unavailable source data' : ''}</p>
+      <p>3D source: {probeValid && props.selectedProbe ? <span className="num">{formatPoint(props.selectedProbe.position)} file units</span> : `Select a ${arch} scan point in the 3D viewer.`}<br />CBCT target: <span className="num">{formatPoint(center)} LPS mm</span>{!crosshairValid ? ' · unavailable source data' : ''}</p>
       {pairs[arch].length > 0 && <div className="tomography-pairs"><table><thead><tr><th>Pair</th><th>Source (file units)</th><th>Target (LPS mm)</th><th><span className="tomography-sr-only">Action</span></th></tr></thead><tbody>{pairs[arch].map((pair, index) => <tr key={index}>
-        <td>{index + 1}</td><td>{formatPoint(pair.source)}</td><td>{formatPoint(pair.target)}</td><td><button type="button" disabled={busy} aria-label={`Remove landmark pair ${index + 1}`} onClick={() => { setPairs(previous => ({ ...previous, [arch]: previous[arch].filter((_, i) => i !== index) })); props.onReviewRegistration?.(arch, false); }}>Remove</button></td>
+        <td><span className="num">{index + 1}</span></td><td><span className="num">{formatPoint(pair.source)}</span></td><td><span className="num">{formatPoint(pair.target)}</span></td><td><button type="button" disabled={busy} aria-label={`Remove landmark pair ${index + 1}`} onClick={() => { setPairs(previous => ({ ...previous, [arch]: previous[arch].filter((_, i) => i !== index) })); props.onReviewRegistration?.(arch, false); }}>Remove</button></td>
       </tr>)}</tbody></table></div>}
       <div className="tomography-registration-bar">
         <button type="button" disabled={busy || !scaleKnown || !usablePairs(pairs[arch]) || !props.onRegister} onClick={() => {
@@ -289,13 +290,13 @@ function LoadedTomography(props: TomographyPanelProps & { volume: TomographyVolu
           if (success === true) setPairs(previous => ({ ...previous, [arch]: [] }));
         }}>Fit {arch} {volume.complete ? 'rigid registration' : 'visual preview alignment'}</button>
         <button type="button" disabled={busy || !props.onResetRegistration} onClick={() => { props.onResetRegistration?.(arch); setPairs(previous => ({ ...previous, [arch]: [] })); }}>{selectedRegistration?.method === 'surface' ? 'Reset whole alignment' : `Reset ${arch} registration`}</button>
-        {selectedRegistration && <span>{selectedRegistration.method === 'surface' ? 'Assembly sampled surface' : 'Landmark fit'} RMS: {selectedRegistration.rmsMm.toFixed(3)} mm{!volume.complete ? ' · preview alignment only' : ''}</span>}
+        {selectedRegistration && <span>{selectedRegistration.method === 'surface' ? 'Assembly sampled surface' : 'Landmark fit'} RMS: <span className="num">{selectedRegistration.rmsMm.toFixed(3)} mm</span>{!volume.complete ? ' · preview alignment only' : ''}</span>}
       </div>
       {pairs[arch].length >= 3 && !usablePairs(pairs[arch]) && <p className="tomography-warning">Landmarks must be noncollinear in both scans and CBCT.</p>}
       <div className="tomography-registration-reviews">{ARCHES.map(a => {
         const registration = registrations.find(record => record.arch === a);
         return <label className="tomography-check" key={a}><input type="checkbox" checked={registration?.reviewed ?? false} disabled={busy || !scaleKnown || !registration || !Number.isFinite(registration.rmsMm) || !props.onReviewRegistration}
-          onChange={event => props.onReviewRegistration?.(a, event.currentTarget.checked)} />{a === 'upper' ? 'Upper' : 'Lower'} {volume.complete ? 'registration reviewed' : 'VISUAL preview alignment reviewed'}{registration ? ` · ${registration.method === 'surface' ? 'assembly sampled surface' : 'landmark fit'} RMS ${registration.rmsMm.toFixed(3)} mm` : ' · not fitted'}</label>;
+          onChange={event => props.onReviewRegistration?.(a, event.currentTarget.checked)} />{a === 'upper' ? 'Upper' : 'Lower'} {volume.complete ? 'registration reviewed' : 'VISUAL preview alignment reviewed'}{registration ? <> · {registration.method === 'surface' ? 'assembly sampled surface' : 'landmark fit'} RMS <span className="num">{registration.rmsMm.toFixed(3)} mm</span></> : ' · not fitted'}</label>;
       })}</div>
       <p>RMS describes the fitted landmarks or sampled surfaces, not alignment accuracy everywhere. Changing mesh pose, scale, or landmarks requires a new review.</p>
     </details>
@@ -305,7 +306,7 @@ function LoadedTomography(props: TomographyPanelProps & { volume: TomographyVolu
 
 /** Independent local-only panel; loading, surface extraction and registration belong to the parent. */
 export function TomographyPanel(props: TomographyPanelProps) {
-  const id = useId(), [allowIncompletePreview, setAllowIncompletePreview] = useState(false);
+  const id = useId(), [allowIncompletePreview, setAllowIncompletePreview] = useState(true);
   const filesRef = useRef<HTMLInputElement>(null), folderRef = useRef<HTMLInputElement>(null);
   const busy = props.loading || props.surfaceBusy || props.alignmentBusy;
   const previousVolume = useRef(props.volume);
@@ -317,10 +318,10 @@ export function TomographyPanel(props: TomographyPanelProps) {
   return <section className="tomography-panel" aria-labelledby={`${id}-heading`} aria-busy={busy}>
     <div className="tomography-header"><div><h2 id={`${id}-heading`}>Local CBCT tomography</h2><p>Skull reference, calibrated slices & posed restoration contours</p></div>
       <div className="tomography-import-actions">
-        <button type="button" disabled={busy} onClick={() => filesRef.current?.click()}>Import DICOM files</button>
-        <button type="button" disabled={busy} onClick={() => folderRef.current?.click()}>Import folder</button>
+        <button type="button" disabled={busy} onClick={() => filesRef.current?.click()}><FileUp size={15} aria-hidden="true" />Import DICOM files</button>
+        <button type="button" disabled={busy} onClick={() => folderRef.current?.click()}><FolderUp size={15} aria-hidden="true" />Import folder</button>
         {busy && <button type="button" onClick={props.onCancel}>Cancel</button>}
-        {Boolean(props.volume || props.error || props.seriesChoices?.length) && <button type="button" onClick={props.onClear}>Clear tomography</button>}
+        {Boolean(props.volume || props.error || props.seriesChoices?.length) && <button type="button" onClick={props.onClear}><Trash2 size={15} aria-hidden="true" />Clear tomography</button>}
       </div>
     </div>
     <input ref={filesRef} type="file" multiple hidden aria-label="Local DICOM files" onChange={event => importFiles(event.currentTarget)} />
@@ -329,7 +330,7 @@ export function TomographyPanel(props: TomographyPanelProps) {
     {props.status && <p className="tomography-status" role="status">{props.status}{props.surfaceBusy ? ' · Building threshold surface…' : ''}</p>}
     {props.error && <p className="tomography-error" role="alert">{props.error}</p>}
     {(props.seriesChoices?.length ?? 0) > 1 && <label className="tomography-series-select">Choose a local series<select defaultValue="" disabled={busy || !props.onSelectSeries} onChange={event => { if (event.currentTarget.value) props.onSelectSeries?.(event.currentTarget.value); }}>
-      <option value="">Select series…</option>{props.seriesChoices!.map(series => <option key={series.id} value={series.id}>{series.label} · {series.slices} slices · {series.dimensions.join(' × ')}</option>)}
+      <option value="">Select series…</option>{props.seriesChoices!.map(series => <option key={series.id} value={series.id}>{series.label} · <span className="num">{series.slices} slices</span> · <span className="num">{series.dimensions.join(' × ')}</span></option>)}
     </select></label>}
     {props.volume ? <LoadedTomography key={props.volume.id} {...props} volume={props.volume} /> : <div className="tomography-empty">
       <strong>{props.loading ? 'Reading local tomography…' : 'No tomography loaded'}</strong>

@@ -11,7 +11,7 @@ const DIRECTIONS: AutoToothDirection[] = ['auto', '+x', '-x', '+y', '-y', '+z', 
 
 function Warnings({ label, warnings }: { label: string; warnings: string[] }) {
   return warnings.length > 0 ? <details className="auto-teeth-warnings">
-    <summary>{label} ({warnings.length})</summary>
+    <summary>{label} (<span className="num">{warnings.length}</span>)</summary>
     <ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
   </details> : null;
 }
@@ -64,7 +64,7 @@ export function AutoTeethPanel(props: AutoTeethPanelProps) {
           onChange={event => props.onSettings({ direction: event.currentTarget.value as AutoToothDirection })}>
           {DIRECTIONS.map(direction => <option key={direction} value={direction}>{direction === 'auto' ? 'Auto' : direction.toUpperCase()}</option>)}
         </select></label>
-        <label>Sensitivity · {props.settings.sensitivity}<input type="range" min="0.5" max="1.5" step="0.05"
+        <label>Sensitivity · <span className="num">{props.settings.sensitivity}</span><input type="range" min="0.5" max="1.5" step="0.05"
           value={props.settings.sensitivity} disabled={props.busy}
           onChange={event => props.onSettings({ sensitivity: event.currentTarget.valueAsNumber })} /></label>
       </div>
@@ -72,30 +72,30 @@ export function AutoTeethPanel(props: AutoTeethPanelProps) {
     </details>
 
     {proposal ? <details className="auto-teeth-proposals" open={!!proposal.model}>
-      <summary>Detected regions · {count(candidates.length)} · review or correct</summary>
-      <div className="auto-teeth-row"><h4>Candidate regions · {count(candidates.length)}</h4>
+      <summary>Detected regions · <span className="num">{count(candidates.length)}</span> · review or correct</summary>
+      <div className="auto-teeth-row"><h4>Candidate regions · <span className="num">{count(candidates.length)}</span></h4>
         <button type="button" disabled={!canScan || candidates.length === 0} onClick={props.onPickTool}>Pick detected tooth</button></div>
-      <p className="auto-teeth-hint">{count(proposal.scan.unassignedTriangles)} unassigned triangles. Candidate IDs are geometry labels, not FDI numbers.</p>
+      <p className="auto-teeth-hint"><span className="num">{count(proposal.scan.unassignedTriangles)} unassigned triangles</span>. Candidate IDs are geometry labels, not FDI numbers.</p>
       {candidates.length > 0 ? <>
         <div className="auto-teeth-candidates" role="group" aria-label="Detected candidate regions">
           {candidates.map(candidate => <button key={candidate.id} type="button" disabled={!canScan}
             aria-pressed={candidate.id === proposal.selectedCandidate} onClick={() => props.onSelectCandidate(candidate.id)}>
-            <strong>C{candidate.id}</strong><span>{count(candidate.faces.length)} triangles</span>
-            {candidate.warnings.length > 0 && <span>{candidate.warnings.length} warning{candidate.warnings.length === 1 ? '' : 's'}</span>}
+            <strong>C{candidate.id}</strong><span><span className="num">{count(candidate.faces.length)} triangles</span></span>
+            {candidate.warnings.length > 0 && <span><span className="num">{candidate.warnings.length} warning{candidate.warnings.length === 1 ? '' : 's'}</span></span>}
           </button>)}
         </div>
         {selected ? <div className="auto-teeth-selected">
           <label>Assign FDI for C{selected.id}<select value={mappedFdi} disabled={!canScan}
             onChange={event => props.onMapCandidate(selected.id, event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}>
             <option value="">Unknown</option>
-            {allowedTeeth.map(tooth => <option key={tooth} value={tooth}>FDI {tooth}</option>)}
+            {allowedTeeth.map(tooth => <option key={tooth} value={tooth}>FDI <span className="num">{tooth}</span></option>)}
           </select></label>
           {mapping ? <p><strong>{mapping.needsReview ? 'Needs review' : 'No review flag'}</strong> · {mapping.reason || 'No mapping reason provided.'}</p>
             : <p>Unmapped. Choose an FDI number or leave Unknown.</p>}
-          {mapping?.fdi != null && mappedFdi === '' && <p className="auto-teeth-warning">Proposed FDI {mapping.fdi} is outside the active arch and cannot be used here.</p>}
+          {mapping?.fdi != null && mappedFdi === '' && <p className="auto-teeth-warning">Proposed FDI <span className="num">{mapping.fdi}</span> is outside the active arch and cannot be used here.</p>}
           <Warnings label={`C${selected.id} warnings`} warnings={selected.warnings} />
           <div className="auto-teeth-actions">
-            <button type="button" disabled={!canUse} onClick={() => props.onUseSelected(targetTooth)}>Use region for FDI {targetTooth}</button>
+            <button type="button" disabled={!canUse} onClick={() => props.onUseSelected(targetTooth)}>Use region for FDI <span className="num">{targetTooth}</span></button>
             <button type="button" disabled={!canScan} onClick={() => props.onRejectCandidate(selected.id)}>Reject region</button>
           </div>
           <p className="auto-teeth-hint">Use region applies C{selected.id} to its displayed FDI target. Existing assignments stay protected.
@@ -124,11 +124,11 @@ export function AutoTeethPanel(props: AutoTeethPanelProps) {
       </fieldset>
       <p className="auto-teeth-hint" id={`${id}-orientation-help`}>Choose from the first overview above. Patient right is not inferred from file axes or camera direction.</p>
       {views.length > 0 && <details className="auto-teeth-payload">
-        <summary>Review exact upload payload · {views.length} rendered views</summary>
+        <summary>Review exact upload payload · <span className="num">{views.length} rendered views</span></summary>
         <div className="auto-teeth-thumbnails">{views.map((view, index) => <figure key={index}>
           <a href={imageSource(view)} target="_blank" rel="noreferrer" aria-label={`Open rendered view ${index + 1}: ${view.label}`}>
             <img src={imageSource(view)} alt={`Rendered arch view ${index + 1}: ${view.label}`} /></a>
-          <figcaption>{index + 1}. {view.label} · {view.mediaType}</figcaption>
+          <figcaption><span className="num">{index + 1}.</span> {view.label} · {view.mediaType}</figcaption>
         </figure>)}</div>
         <p className="auto-teeth-hint">These exact images and the anonymous geometry summary below form the request. Area uses squared file units; height uses file units.</p>
         <pre aria-label="Arch, orientation and anonymous candidate geometry summary">{JSON.stringify({ arch, patientRight: props.patientRight, candidates: geometrySummary }, null, 2)}</pre>
@@ -149,7 +149,7 @@ export function AutoTeethPanel(props: AutoTeethPanelProps) {
       <h4>Possible missing / unsegmented</h4>
       <p className="auto-teeth-hint">Suggestions for chart review only. Reviewing does not mark a tooth Missing or set implant intent.</p>
       <ul>{proposal.possibleMissing.map((gap, index) => <li key={index}>
-        <button type="button" disabled={props.busy} onClick={() => props.onReviewGap(gap.fdi)}>Review FDI {gap.fdi}</button><span>{gap.reason}</span>
+        <button type="button" disabled={props.busy} onClick={() => props.onReviewGap(gap.fdi)}>Review FDI <span className="num">{gap.fdi}</span></button><span>{gap.reason}</span>
       </li>)}</ul>
     </div>}
     {(props.processing ?? props.busy) && <div className="auto-teeth-busy"><span role="status">{props.stage || 'Processing automatic tooth selection…'}</span>
