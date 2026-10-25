@@ -200,8 +200,11 @@ export function PatientView({
       <div className="patient-nav-bar">
         <div className="patient-nav-inner">
           <div className="patient-brand-tag">
-            <span className="brand-dot" />
-            <span>PLATANUS DENTAL</span>
+            <span className="brand-logo-wrap" aria-label="Céflow">
+              <img src="/brand/ceflow-logo-navy.png" alt="Céflow" className="ceflow-logo ceflow-logo--light" />
+              <img src="/brand/ceflow-logo-periwinkle.png" alt="Céflow" className="ceflow-logo ceflow-logo--dark" />
+            </span>
+            <span className="patient-brand-sub">DENTAL</span>
           </div>
           <div className="patient-nav-actions">
             <button type="button" className="btn-patient-ghost" onClick={handleShare}>
@@ -218,7 +221,13 @@ export function PatientView({
       <main className="patient-shell">
         {/* Document Header */}
         <header className="patient-header">
-          <span className="patient-brand">PLATANUS DENTAL · INFORME CLÍNICO 3D</span>
+          <div className="patient-brand">
+            <span className="brand-logo-wrap" aria-label="Céflow">
+              <img src="/brand/ceflow-logo-navy.png" alt="Céflow" className="ceflow-logo ceflow-logo--light" />
+              <img src="/brand/ceflow-logo-periwinkle.png" alt="Céflow" className="ceflow-logo ceflow-logo--dark" />
+            </span>
+            <span className="patient-header-badge">INFORME CLÍNICO 3D</span>
+          </div>
           <h1>Informe para {patientName}</h1>
           <p>
             Caso #{caseId} · Compartido el 24 de octubre de 2026 · Planificación digital preliminar.

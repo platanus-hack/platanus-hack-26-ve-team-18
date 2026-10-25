@@ -4,6 +4,7 @@ import { App } from './App';
 import './style.css';
 import './workflow.css';
 import './guided-workspace.css';
+import './dark-mode.css';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };

@@ -2,20 +2,58 @@
 
 :root {
   --pat-paper: #ffffff;
-  --pat-bg: #f6f8fb; /* Doctor view background (--color-paper) */
-  --pat-border: #e0e6ef; /* Doctor card & header borders */
-  --pat-border-subtle: #dbe4f1;
-  --pat-blue: #285ec7; /* Doctor signature blue (--color-blue) */
-  --pat-blue-hover: #214fa9;
-  --pat-blue-light: #f0f5fe;
-  --pat-blue-subtle: #f8fbff;
+  --pat-bg: #f4f6fa;
+  --pat-border: #d4deec;
+  --pat-border-subtle: #e6edf5;
+  --pat-blue: #235ec7;
+  --pat-blue-hover: #1b4ea8;
+  --pat-blue-light: #eff4fb;
+  --pat-blue-subtle: #f6f9fd;
   --pat-blue-border: #ccdcf5;
-  --pat-ink: #223449; /* Doctor dark navy text (--color-ink) */
-  --pat-muted: #617187; /* Doctor muted text */
-  --pat-viewport-bg: #eef3f9; /* Doctor 3D viewport canvas background */
-  --pat-viewport-dot: #a3b6cd;
-  --pat-orange: #d49a32; /* Doctor warning / near indicator */
-  --pat-contact: #d84d45; /* Doctor contact indicator */
+  --pat-ink: #111827;
+  --pat-muted: #536479;
+  --pat-viewport-bg: #eaf0f7;
+  --pat-viewport-dot: #a5b7cc;
+  --pat-orange: #d49a32;
+  --pat-contact: #d84d45;
+}
+
+:root[data-theme='dark'] {
+  --pat-paper: #131822;
+  --pat-bg: #0c1017;
+  --pat-border: #212c3d;
+  --pat-border-subtle: #18202d;
+  --pat-blue: #2c6ee8;
+  --pat-blue-hover: #3d7bf0;
+  --pat-blue-light: #162235;
+  --pat-blue-subtle: #1b283d;
+  --pat-blue-border: #29436b;
+  --pat-ink: #f0f4f8;
+  --pat-muted: #8294a8;
+  --pat-viewport-bg: #080c12;
+  --pat-viewport-dot: #1b2636;
+  --pat-orange: #e6ab42;
+  --pat-contact: #e85d55;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --pat-paper: #131822;
+    --pat-bg: #0c1017;
+    --pat-border: #212c3d;
+    --pat-border-subtle: #18202d;
+    --pat-blue: #2c6ee8;
+    --pat-blue-hover: #3d7bf0;
+    --pat-blue-light: #162235;
+    --pat-blue-subtle: #1b283d;
+    --pat-blue-border: #29436b;
+    --pat-ink: #f0f4f8;
+    --pat-muted: #8294a8;
+    --pat-viewport-bg: #080c12;
+    --pat-viewport-dot: #1b2636;
+    --pat-orange: #e6ab42;
+    --pat-contact: #e85d55;
+  }
 }
 
 .patient-medical-page {
@@ -31,7 +69,7 @@
   position: sticky;
   top: 0;
   z-index: 50;
-  background: #ffffff;
+  background: var(--pat-paper);
   border-bottom: 1px solid var(--pat-border);
   padding: 12px 20px;
 }
@@ -45,13 +83,47 @@
 }
 
 .patient-brand-tag {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 10px;
+  line-height: 1;
+}
+
+.patient-brand-tag .brand-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+}
+
+.patient-brand-tag .ceflow-logo {
+  height: 15px;
+  width: auto;
+  object-fit: contain;
+}
+
+.patient-brand-sub {
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: -0.2px;
-  color: var(--pat-blue);
+  letter-spacing: 0.8px;
+  color: var(--pat-muted);
+  line-height: 1;
+  border-left: 1px solid var(--pat-border);
+  padding-left: 8px;
+  user-select: none;
+}
+
+.patient-brand-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.patient-header-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .brand-dot {
@@ -68,9 +140,9 @@
 }
 
 .btn-patient-ghost {
-  border: 1px solid #d9e1ec;
-  background: #ffffff;
-  color: #34475d;
+  border: 1px solid var(--pat-border);
+  background: var(--pat-paper);
+  color: var(--pat-ink);
   font-size: 11.5px;
   font-weight: 550;
   padding: 6px 12px;
@@ -80,8 +152,8 @@
 }
 
 .btn-patient-ghost:hover {
-  background: #f1f5fc;
-  border-color: #8da9d3;
+  background: var(--pat-blue-subtle);
+  border-color: var(--pat-blue);
 }
 
 .btn-patient-doctor {
@@ -120,11 +192,37 @@
 }
 
 .patient-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--pat-blue);
+  line-height: 1;
+}
+
+.patient-brand .brand-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  height: 13px;
+}
+
+.patient-brand .ceflow-logo {
+  height: 13px;
+  width: auto;
+  object-fit: contain;
+}
+
+.patient-header-badge {
+  font-size: 10px;
+  letter-spacing: 1.1px;
+  font-weight: 650;
+  color: var(--pat-muted);
+  border-left: 1px solid var(--pat-border);
+  padding-left: 8px;
+  user-select: none;
 }
 
 .patient-header h1 {
@@ -318,8 +416,9 @@
   align-items: center;
   justify-content: center;
   padding: 4px 1px;
-  background: #ffffff;
-  border: 1px solid #d9e1ec;
+  background: var(--pat-paper);
+  border: 1px solid var(--pat-border);
+  color: var(--pat-ink);
   border-radius: 5px;
   cursor: pointer;
   min-width: 24px;
@@ -328,8 +427,8 @@
 }
 
 .tooth-btn:hover {
-  border-color: #8da9d3;
-  background: #f1f5fc;
+  border-color: var(--pat-blue);
+  background: var(--pat-blue-subtle);
 }
 
 .tooth-btn.selected {

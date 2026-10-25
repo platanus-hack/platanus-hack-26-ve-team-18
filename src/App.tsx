@@ -57,7 +57,13 @@ const DEFAULT_SCALE_PROVENANCE = 'Default scan scale: 1 mm per file unit (editab
 /** How long a slider must be still before the 3D scene applies its value. */
 const SLIDER_SETTLE_MS = 100;
 
-function Glyph({ kind }: { kind: 'add' | 'file' | 'download' | 'close' }) {
+function Glyph({ kind }: { kind: 'add' | 'file' | 'download' | 'close' | 'sun' | 'moon' }) {
+  if (kind === 'sun') {
+    return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></svg>;
+  }
+  if (kind === 'moon') {
+    return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></svg>;
+  }
   return <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">{kind === 'add' ? <path d="M10 3v14M3 10h14" /> : kind === 'close' ? <path d="m5 5 10 10M15 5 5 15" /> : kind === 'download' ? <path d="M10 2v11m-4-4 4 4 4-4M3 14v3h14v-3" /> : <><path d="M5 2h7l4 4v12H5V2Z" /><path d="M12 2v5h4M8 11h5M8 14h5" /></>}</svg>;
 }
 
@@ -118,6 +124,21 @@ export function App() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ceflow-theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+    }
+    return 'light';
+  });
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('ceflow-theme', theme);
+    }
+  }, [theme]);
+  const toggleTheme = () => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   const workflowToken = useRef(0);
   const workflowDeadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const timedPreparation = useRef('');
@@ -763,8 +784,8 @@ export function App() {
 
   return <div className="app" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true); } }} onDragOver={drag} onDragLeave={event => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); void load(Array.from(event.dataTransfer.files)); }}>
     <header className="app-header">
-      <div className="brand"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span><span>Céflow <span className="brand-divider">/</span> Platanus <strong>Implant planning</strong></span><span className="version">v2</span></div>
-      <div className="header-actions"><button aria-expanded={tomographyOpen} onClick={openTomography}>CBCT{tomography.volume && <span className="badge">Loaded</span>}</button><button aria-expanded={scansOpen} aria-controls="scan-manager" onClick={() => setScansOpen(value => !value)}><Glyph kind="file" />Files{parts.length > 0 && <span className="badge">{parts.length}</span>}</button><button className="primary" disabled={importing || aligning || tooth.busy || assessing || restorations.busy} onClick={() => input.current?.click()}>{importing ? <span className="spinner" /> : <Glyph kind="add" />}{importing ? 'Reading files…' : 'Add files'}</button></div>
+      <div className="brand"><span className="brand-logo-wrap" aria-label="Céflow"><img src="/brand/ceflow-logo-navy.png" alt="Céflow" className="ceflow-logo ceflow-logo--light" /><img src="/brand/ceflow-logo-periwinkle.png" alt="Céflow" className="ceflow-logo ceflow-logo--dark" /></span><span className="brand-divider">/</span><span className="brand-mark brand-mark--platanus" aria-hidden="true"><img src="/brand/platanus-logo.png" alt="Platanus" className="brand-icon-img" /></span><span className="brand-partner-text">Platanus</span></div>
+      <div className="header-actions"><button className="theme-toggle" aria-label="Toggle color theme" title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'} onClick={toggleTheme}><Glyph kind={theme === 'dark' ? 'sun' : 'moon'} /></button><button aria-expanded={tomographyOpen} onClick={openTomography}>CBCT{tomography.volume && <span className="badge">Loaded</span>}</button><button aria-expanded={scansOpen} aria-controls="scan-manager" onClick={() => setScansOpen(value => !value)}><Glyph kind="file" />Files{parts.length > 0 && <span className="badge">{parts.length}</span>}</button><button className="primary" disabled={importing || aligning || tooth.busy || assessing || restorations.busy} onClick={() => input.current?.click()}>{importing ? <span className="spinner" /> : <Glyph kind="add" />}{importing ? 'Reading files…' : 'Add files'}</button></div>
       <input ref={input} type="file" accept=".stl,.obj,.ply,.mtl,.jpg,.jpeg,.png,.dcm,.dicom" multiple hidden aria-label="Import 3D files" onChange={event => void load(Array.from(event.target.files ?? []))} />
       <input ref={textureInput} type="file" accept=".jpg,.jpeg,.png" hidden aria-label="Attach scan texture" onChange={event => { const file = event.target.files?.[0]; if (file && active) void applyTexture(active, file); event.target.value = ''; }} />
       <input ref={sessionInput} type="file" accept=".json,application/json" hidden aria-label="Reopen case session" onChange={event => { const file = event.target.files?.[0]; if (file) void reopenSession(file); event.target.value = ''; }} />

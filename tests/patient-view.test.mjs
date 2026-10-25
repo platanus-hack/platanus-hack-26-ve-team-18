@@ -97,3 +97,29 @@ test('whatsapp consultation link formats patient name, case ID and Céflow brand
   assert.ok(fullUrl.startsWith('https://wa.me/?text='));
 });
 
+test('favicon and brand symbol assets exist with valid dimensions and formats', () => {
+  const publicDir = path.resolve(process.cwd(), 'public');
+  assert.ok(fs.existsSync(path.join(publicDir, 'favicon.ico')), 'favicon.ico must exist');
+  assert.ok(fs.existsSync(path.join(publicDir, 'favicon-32x32.png')), 'favicon-32x32.png must exist');
+  assert.ok(fs.existsSync(path.join(publicDir, 'favicon-16x16.png')), 'favicon-16x16.png must exist');
+  assert.ok(fs.existsSync(path.join(publicDir, 'apple-touch-icon.png')), 'apple-touch-icon.png must exist');
+
+  const brandDir = path.join(publicDir, 'brand');
+  assert.ok(fs.existsSync(path.join(brandDir, 'ceflow-symbol-periwinkle.png')), 'ceflow-symbol-periwinkle.png must exist');
+  assert.ok(fs.existsSync(path.join(brandDir, 'ceflow-symbol-navy.png')), 'ceflow-symbol-navy.png must exist');
+  assert.ok(fs.existsSync(path.join(brandDir, 'ceflow-symbol-sage.png')), 'ceflow-symbol-sage.png must exist');
+  assert.ok(fs.existsSync(path.join(brandDir, 'ceflow-symbol-ivory.png')), 'ceflow-symbol-ivory.png must exist');
+  assert.ok(fs.existsSync(path.join(brandDir, 'platanus-logo.png')), 'platanus-logo.png must exist');
+
+  // Verify non-zero file sizes
+  const icoStats = fs.statSync(path.join(publicDir, 'favicon.ico'));
+  assert.ok(icoStats.size > 500, 'favicon.ico must not be empty');
+
+  // Verify index.html references the favicons
+  const indexHtml = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
+  assert.ok(indexHtml.includes('/favicon.ico'), 'index.html must reference favicon.ico');
+  assert.ok(indexHtml.includes('/apple-touch-icon.png'), 'index.html must reference apple-touch-icon.png');
+  assert.ok(indexHtml.includes('prefers-color-scheme: dark'), 'index.html must support dark mode theme-color');
+});
+
+
