@@ -8,8 +8,8 @@ export const ANTHROPIC_MODELS = [
 ] as const;
 
 export type AnthropicModelId = typeof ANTHROPIC_MODELS[number]['id'];
-export const DEFAULT_ASSISTANT_MODEL = 'claude-sonnet-5-5' satisfies AnthropicModelId;
-export const DEFAULT_IDENTIFICATION_MODEL = 'claude-haiku-5-5' satisfies AnthropicModelId;
+export const DEFAULT_ASSISTANT_MODEL = 'claude-opus-5-5' satisfies AnthropicModelId;
+export const DEFAULT_IDENTIFICATION_MODEL = 'claude-opus-5-5' satisfies AnthropicModelId;
 export const anthropicModelIdSchema = z.enum(ANTHROPIC_MODELS.map(model => model.id));
 
 export function isAnthropicModelId(value: unknown): value is AnthropicModelId {
