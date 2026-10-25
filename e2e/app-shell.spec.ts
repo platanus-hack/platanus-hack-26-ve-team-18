@@ -7,9 +7,11 @@ test.describe('App Shell & Navigation', () => {
     // Check header brand
     await expect(page.locator('.brand')).toContainText('Platanus');
     await expect(page.locator('.brand')).toContainText('Implant planning');
+    await expect(page.locator('.brand-mark img')).toBeVisible();
 
     // Check main actions
     await expect(page.locator('.patient-mode-toggle')).toHaveCount(0);
+    await expect(page.locator('.theme-toggle')).toBeVisible();
     await expect(page.locator('button:has-text("Add files")')).toBeVisible();
     await expect(page.locator('.header-actions button:has-text("CBCT")')).toBeVisible();
 
@@ -32,5 +34,25 @@ test.describe('App Shell & Navigation', () => {
     // Verify returned to Clinical Planning
     await expect(page.locator('.workspace')).toBeVisible();
     await expect(page.locator('.patient-mode-toggle')).toHaveCount(0);
+  });
+
+  test('toggles dark mode theme and sets data-theme attribute on root', async ({ page }) => {
+    await page.goto('/');
+
+    const themeToggle = page.locator('.theme-toggle');
+    await expect(themeToggle).toBeVisible();
+
+    // Toggle theme
+    await themeToggle.click();
+
+    // Verify root html has data-theme attribute set
+    const html = page.locator('html');
+    const themeAttr = await html.getAttribute('data-theme');
+    expect(themeAttr).toMatch(/dark|light/);
+
+    // Toggle back
+    await themeToggle.click();
+    const nextThemeAttr = await html.getAttribute('data-theme');
+    expect(nextThemeAttr).not.toBe(themeAttr);
   });
 });

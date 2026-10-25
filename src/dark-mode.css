@@ -1,0 +1,1295 @@
+/* ==========================================================================
+   Céflow Surgical Titanium Medical CAD - Comprehensive Dark Mode Theme
+   Precision Obsidian (#0c1017), Surface (#131822), Elevated (#1a2230),
+   Hairline Border (#212c3d), Platinum Ink (#f0f4f8), Sapphire (#2c6ee8).
+   Zero pastel tones, zero light leaks, clinical medical seriousness.
+   ========================================================================== */
+
+:root[data-theme='dark'] {
+  --theme-ink: #f0f4f8;
+  --theme-muted: #8294a8;
+  --theme-paper: #0c1017;
+  --theme-surface: #131822;
+  --theme-surface-elevated: #1a2230;
+  --theme-surface-well: #0d121a;
+  --theme-surface-highlight: #1e2838;
+  --theme-border: #212c3d;
+  --theme-border-subtle: #18202d;
+  --theme-border-elevated: #28374d;
+  --theme-blue: #2c6ee8;
+  --theme-blue-hover: #3d7bf0;
+  --theme-blue-soft: #142136;
+  --theme-blue-border: #24416a;
+  --theme-viewport: #080c12;
+  --theme-viewport-dot: #1b2636;
+  --theme-warning-bg: #21190c;
+  --theme-warning-text: #e6b349;
+  --theme-warning-border: #443315;
+  --theme-danger-bg: #241113;
+  --theme-danger-text: #f87171;
+  --theme-danger-border: #471c21;
+  --theme-success-bg: #0c201a;
+  --theme-success-text: #679385;
+  --theme-success-border: #184438;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --theme-ink: #f0f4f8;
+    --theme-muted: #8294a8;
+    --theme-paper: #0c1017;
+    --theme-surface: #131822;
+    --theme-surface-elevated: #1a2230;
+    --theme-surface-well: #0d121a;
+    --theme-surface-highlight: #1e2838;
+    --theme-border: #212c3d;
+    --theme-border-subtle: #18202d;
+    --theme-border-elevated: #28374d;
+    --theme-blue: #2c6ee8;
+    --theme-blue-hover: #3d7bf0;
+    --theme-blue-soft: #142136;
+    --theme-blue-border: #24416a;
+    --theme-viewport: #080c12;
+    --theme-viewport-dot: #1b2636;
+    --theme-warning-bg: #21190c;
+    --theme-warning-text: #e6b349;
+    --theme-warning-border: #443315;
+    --theme-danger-bg: #241113;
+    --theme-danger-text: #f87171;
+    --theme-danger-border: #471c21;
+    --theme-success-bg: #0c201a;
+    --theme-success-text: #679385;
+    --theme-success-border: #184438;
+  }
+}
+
+/* Scrollbars in dark mode */
+[data-theme='dark'] * {
+  scrollbar-color: #28374d #0d121a;
+}
+
+/* ==========================================================================
+   Global Controls, Dropdowns, Inputs & Tables
+   ========================================================================== */
+[data-theme='dark'] select,
+[data-theme='dark'] input[type='text'],
+[data-theme='dark'] input[type='number'],
+[data-theme='dark'] textarea,
+[data-theme='dark'] .anthropic-model-select select {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-ink);
+  border: 1px solid var(--theme-border);
+}
+
+[data-theme='dark'] select:focus-visible,
+[data-theme='dark'] input:focus-visible,
+[data-theme='dark'] textarea:focus-visible {
+  outline-color: var(--theme-blue);
+  border-color: var(--theme-blue);
+}
+
+[data-theme='dark'] .badge {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] th {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-muted);
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] td {
+  border-top-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+/* ==========================================================================
+   Sidebar, Part List & File Management
+   ========================================================================== */
+[data-theme='dark'] .sidebar {
+  background: var(--theme-surface);
+  border-right-color: var(--theme-border);
+  box-shadow: 12px 0 32px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='dark'] .sidebar-intro,
+[data-theme='dark'] .part-meta,
+[data-theme='dark'] .remove-part,
+[data-theme='dark'] .hint,
+[data-theme='dark'] .sidebar-bottom,
+[data-theme='dark'] .sidebar-bottom p span,
+[data-theme='dark'] .tolerance-label,
+[data-theme='dark'] .tolerance-label span,
+[data-theme='dark'] .legend,
+[data-theme='dark'] dt,
+[data-theme='dark'] .facts dt {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .import-zone {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .import-zone>svg {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .import-zone strong {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .import-zone span,
+[data-theme='dark'] .import-zone small {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .part-row.selected {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+}
+
+[data-theme='dark'] .part-name {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .mesh-status {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .mesh-status.open {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning-text);
+}
+
+[data-theme='dark'] .part-detail,
+[data-theme='dark'] .analysis-facts,
+[data-theme='dark'] .collision-settings {
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] .opacity-control {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .opacity-control output,
+[data-theme='dark'] .opacity-badge {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .import-progress {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='dark'] .drop-overlay {
+  background: rgba(12, 16, 23, 0.94);
+  border-color: var(--theme-blue);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .error-banner {
+  background: var(--theme-danger-bg);
+  border-bottom: 1px solid var(--theme-danger-border);
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .results {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .results-heading h2 {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .results-heading p,
+[data-theme='dark'] .results-empty,
+[data-theme='dark'] .method-note,
+[data-theme='dark'] .import-notes {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .relationship {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning-text);
+}
+
+[data-theme='dark'] .relationship.intersects {
+  background: var(--theme-danger-bg);
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .probe {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+/* ==========================================================================
+   Workflow Steps & Collapsible Inspector Panels
+   ========================================================================== */
+[data-theme='dark'] .workflow-steps {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .workflow-steps button {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .workflow-steps button span {
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .workflow-steps button[aria-current=step] {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-ink);
+  border-color: var(--theme-blue);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='dark'] .workflow-steps button[aria-current=step] span {
+  background: var(--theme-blue);
+  color: #fff;
+  border-color: var(--theme-blue);
+}
+
+[data-theme='dark'] .case-caption {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .case-corrections,
+[data-theme='dark'] .inspection-details,
+[data-theme='dark'] .assistant-details {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .case-corrections>summary,
+[data-theme='dark'] .inspection-details>summary,
+[data-theme='dark'] .assistant-details>summary {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .case-corrections[open]>summary,
+[data-theme='dark'] .inspection-details[open]>summary {
+  border-bottom-color: var(--theme-border);
+}
+
+[data-theme='dark'] .texture-status {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .pose-details>summary,
+[data-theme='dark'] .bite-settings>summary {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .bite-panel {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .bite-panel>summary {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .bite-heading p,
+[data-theme='dark'] .bite-controls label {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .bite-notice {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .bite-notice summary {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .fit-summary {
+  color: var(--theme-blue);
+}
+
+/* ==========================================================================
+   3D Viewport Floating Overlays (HUD) & Camera Controls
+   ========================================================================== */
+[data-theme='dark'] .scene-visibility {
+  background: rgba(19, 24, 34, 0.94);
+  border-color: var(--theme-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme='dark'] .scene-visibility-title {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .jaw-control button {
+  background: var(--theme-blue-soft);
+  color: var(--theme-blue);
+  border: 1px solid var(--theme-blue-border);
+}
+
+[data-theme='dark'] .jaw-control button[aria-pressed=false] {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-muted);
+  border: 1px solid var(--theme-border);
+}
+
+[data-theme='dark'] .jaw-control output {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .scene-reset {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .compact-camera > button,
+[data-theme='dark'] .camera-menu > summary,
+[data-theme='dark'] .scene-menu > summary {
+  background: rgba(19, 24, 34, 0.94);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme='dark'] .camera-menu[open] > summary,
+[data-theme='dark'] .scene-menu[open] > summary {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-blue);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .camera-menu .camera-tools {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+
+[data-theme='dark'] .scene-menu .scene-visibility {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .navigation-mode button[aria-pressed='true'] {
+  background: var(--theme-blue-soft);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .viewport,
+[data-theme='dark'] .planning-scene .viewport,
+[data-theme='dark'] .tooth-scan .viewport {
+  background: var(--theme-viewport);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .viewport::before,
+[data-theme='dark'] .planning-scene .viewport::before,
+[data-theme='dark'] .tooth-scan .viewport::before {
+  background-image: radial-gradient(var(--theme-viewport-dot) 0.65px, transparent .65px);
+  opacity: 0.35;
+}
+
+[data-theme='dark'] .viewport-empty h2 {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .viewport-empty p,
+[data-theme='dark'] .viewport-empty .file-types {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .planning-scene .viewport.viewport-expanded {
+  box-shadow: 0 0 0 20px var(--theme-paper);
+}
+
+/* ==========================================================================
+   Clinical Guidance Process Panel
+   ========================================================================== */
+[data-theme='dark'] .process-panel {
+  --process-blue: var(--theme-blue);
+  --process-ink: var(--theme-ink);
+  --process-muted: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel__hero {
+  background: linear-gradient(135deg, #131b29, #172233);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .process-panel__status {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .process-panel .process-panel__detail {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel__step:not(:last-child)::after {
+  background: var(--theme-border);
+}
+
+[data-theme='dark'] .process-panel__step-marker {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel__step-label {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel__step-detail {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel__step[data-status='complete'] .process-panel__step-marker {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .process-panel__step[data-status='complete'] .process-panel__step-label {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .process-panel__step[data-status='complete']::after {
+  background: var(--theme-blue-border);
+}
+
+[data-theme='dark'] .process-panel__step[data-active] .process-panel__step-label {
+  color: #ffffff;
+}
+
+[data-theme='dark'] .process-panel__step[data-active] .process-panel__step-marker {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue);
+  color: var(--theme-blue);
+  box-shadow: 0 0 0 3px rgba(44, 110, 232, 0.25);
+}
+
+[data-theme='dark'] .process-panel__step[data-status='attention'] .process-panel__step-marker {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning-border);
+  color: var(--theme-warning-text);
+}
+
+[data-theme='dark'] .process-panel__review {
+  border-block-color: var(--theme-border);
+}
+
+[data-theme='dark'] .process-panel__source {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel__metrics dd {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .process-panel__metrics dt {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel__issues {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning-border);
+  color: var(--theme-warning-text);
+}
+
+[data-theme='dark'] .process-panel .process-panel__note {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel .process-panel__provider-label {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .process-panel__sharing-label {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .process-panel__sharing-note {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel button {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .process-panel button:hover:not(:disabled) {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-blue);
+}
+
+[data-theme='dark'] .process-panel button:disabled {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel .process-panel__primary {
+  background: var(--theme-blue);
+  border-color: var(--theme-blue);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(44, 110, 232, 0.3);
+}
+
+[data-theme='dark'] .process-panel .process-panel__primary:hover:not(:disabled) {
+  background: var(--theme-blue-hover);
+  border-color: var(--theme-blue-hover);
+}
+
+[data-theme='dark'] .process-panel .process-panel__pause {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel__footer {
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] .process-panel .process-panel__advanced {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .process-panel .process-panel__advanced:hover:not(:disabled) {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .process-panel__ai-review {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .process-panel__ai-review h3 {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .process-panel__ai-review p {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .process-panel__ai-review summary {
+  color: var(--theme-blue);
+}
+
+/* ==========================================================================
+   Tooth Identification Panel
+   ========================================================================== */
+[data-theme='dark'] .tooth-panel {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tooth-header h2,
+[data-theme='dark'] .tooth-panel h3 {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tooth-header p,
+[data-theme='dark'] .tooth-orientation,
+[data-theme='dark'] .tooth-arch-label,
+[data-theme='dark'] .tooth-legend,
+[data-theme='dark'] .tooth-fields label,
+[data-theme='dark'] .tooth-note,
+[data-theme='dark'] .tooth-hint,
+[data-theme='dark'] .tooth-options label,
+[data-theme='dark'] .tooth-brush-history > label,
+[data-theme='dark'] .tooth-guidance,
+[data-theme='dark'] .tooth-save-hint {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tooth-panel .tooth-slot {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tooth-slot-number {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tooth-slot-mark {
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tooth-panel .tooth-slot--present .tooth-slot-mark {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .tooth-panel .tooth-slot--missing {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning-border);
+}
+
+[data-theme='dark'] .tooth-slot--missing .tooth-slot-mark {
+  border-color: var(--theme-warning-border);
+  color: var(--theme-warning-text);
+  background: var(--theme-surface-well);
+}
+
+[data-theme='dark'] .tooth-panel .tooth-slot--not-scanned {
+  background: repeating-linear-gradient(135deg, #111722, #111722 5px, #17202e 5px, #17202e 6px);
+}
+
+[data-theme='dark'] .tooth-slot--not-scanned .tooth-slot-mark {
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tooth-panel .tooth-slot--selected {
+  border-color: var(--theme-blue);
+  box-shadow: 0 0 0 2px rgba(44, 110, 232, 0.4);
+}
+
+[data-theme='dark'] .tooth-key--selected {
+  border-color: var(--theme-blue);
+  background: var(--theme-blue-soft);
+}
+
+[data-theme='dark'] .tooth-workbench {
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tooth-selected-heading strong {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .tooth-selected-heading > span {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tooth-panel select {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tooth-note textarea {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tooth-site-detail strong {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tooth-scan-message {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tooth-panel .tooth-tools button[aria-pressed='true'] {
+  color: var(--theme-blue);
+  border-color: var(--theme-blue);
+  background: var(--theme-blue-soft);
+}
+
+[data-theme='dark'] .tooth-missing-sites {
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tooth-missing-sites h3 > span {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tooth-missing-sites button[aria-pressed='true'] {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue);
+}
+
+[data-theme='dark'] .tooth-busy {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .tooth-error {
+  background: var(--theme-danger-bg);
+  border: 1px solid var(--theme-danger-border);
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .tooth-notice {
+  background: var(--theme-blue-soft);
+  border: 1px solid var(--theme-blue-border);
+  color: var(--theme-blue);
+}
+
+/* ==========================================================================
+   AI Assistant Panel
+   ========================================================================== */
+[data-theme='dark'] .assistant-panel {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .assistant-heading {
+  background: var(--theme-surface-elevated);
+}
+
+[data-theme='dark'] .assistant-eyebrow {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .assistant-heading h2 {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .assistant-heading p,
+[data-theme='dark'] .assistant-disclosure,
+[data-theme='dark'] .assistant-note-option,
+[data-theme='dark'] .assistant-catalog p,
+[data-theme='dark'] .assistant-form-actions label,
+[data-theme='dark'] .assistant-panel form > label {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .assistant-panel summary {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .assistant-panel pre {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .assistant-catalog article {
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] .assistant-catalog code {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .assistant-setup {
+  background: var(--theme-surface-elevated);
+}
+
+[data-theme='dark'] .assistant-setup p {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .assistant-message {
+  background: var(--theme-surface-elevated);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .assistant-message.user {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+}
+
+[data-theme='dark'] .assistant-message > strong {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .assistant-panel textarea {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .assistant-error {
+  background: var(--theme-danger-bg);
+  border: 1px solid var(--theme-danger-border);
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .assistant-notice {
+  color: var(--theme-blue);
+}
+
+/* ==========================================================================
+   Auto-Teeth Proposals & Restoration Panel
+   ========================================================================== */
+[data-theme='dark'] .auto-teeth-panel {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .auto-teeth-heading p,
+[data-theme='dark'] .auto-teeth-panel .auto-teeth-hint,
+[data-theme='dark'] .auto-teeth-fields label,
+[data-theme='dark'] .auto-teeth-selected > label,
+[data-theme='dark'] .auto-teeth-candidates button span,
+[data-theme='dark'] .auto-teeth-gaps li > span,
+[data-theme='dark'] .auto-teeth-panel figcaption {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .auto-teeth-context {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .auto-teeth-panel summary {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .auto-teeth-proposals,
+[data-theme='dark'] .auto-teeth-remote,
+[data-theme='dark'] .auto-teeth-gaps {
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] .auto-teeth-candidates button[aria-pressed='true'] {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue);
+  box-shadow: 0 0 0 1px var(--theme-blue);
+}
+
+[data-theme='dark'] .auto-teeth-selected {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .auto-teeth-empty {
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .auto-teeth-panel pre {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .auto-teeth-orientation {
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .auto-teeth-orientation legend {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .auto-teeth-busy {
+  background: var(--theme-blue-soft);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .auto-teeth-error {
+  background: var(--theme-danger-bg);
+  border: 1px solid var(--theme-danger-border);
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .auto-teeth-notice {
+  background: var(--theme-blue-soft);
+  border: 1px solid var(--theme-blue-border);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .restoration-panel {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .restoration-header h2,
+[data-theme='dark'] .restoration-component h3,
+[data-theme='dark'] .restoration-guardrail > summary {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .restoration-header > span {
+  background: var(--theme-blue-soft);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .restoration-intro,
+[data-theme='dark'] .restoration-provenance,
+[data-theme='dark'] .restoration-adjust p,
+[data-theme='dark'] .restoration-fields small,
+[data-theme='dark'] .restoration-edit-explanation,
+[data-theme='dark'] .restoration-guardrail-controls {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .restoration-list button {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .restoration-list button[aria-pressed="true"] {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .restoration-limit {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .restoration-component {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .restoration-adjust summary {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .restoration-guardrails {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .restoration-guardrail {
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] .restoration-guardrail > summary > span {
+  background: var(--theme-blue-soft);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .restoration-guardrail--fail > summary > span {
+  background: var(--theme-danger-bg);
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .restoration-editor-toolbar button[aria-pressed="true"] {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .restoration-empty,
+[data-theme='dark'] .restoration-status {
+  background: var(--theme-surface-elevated);
+}
+
+[data-theme='dark'] .restoration-status {
+  color: var(--theme-blue);
+}
+
+/* ==========================================================================
+   Planning Panel & Advanced Workspace Container
+   ========================================================================== */
+[data-theme='dark'] .planning-panel {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .planning-panel h2,
+[data-theme='dark'] .planning-panel h3,
+[data-theme='dark'] .planning-panel h4 {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .planning-panel .planning-eyebrow {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .planning-panel .planning-muted,
+[data-theme='dark'] .planning-inputs dt,
+[data-theme='dark'] .planning-panel figcaption,
+[data-theme='dark'] .planning-category,
+[data-theme='dark'] .planning-panel .planning-review-label,
+[data-theme='dark'] .planning-site-list p {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .planning-badge {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .planning-section {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .planning-panel button {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .planning-panel button:hover:not(:disabled) {
+  background: var(--theme-surface-highlight);
+  border-color: var(--theme-blue);
+}
+
+[data-theme='dark'] .planning-panel .planning-primary {
+  background: var(--theme-blue);
+  border-color: var(--theme-blue);
+  color: #fff;
+}
+
+[data-theme='dark'] .planning-inputs > div {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .planning-inputs dd {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .planning-panel .planning-note,
+[data-theme='dark'] .planning-disclosure {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .planning-panel .planning-empty {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .planning-local-summary {
+  background: var(--theme-surface-elevated);
+  border-left-color: var(--theme-blue);
+}
+
+[data-theme='dark'] .planning-orientation {
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .planning-orientation legend {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .planning-details {
+  border-top-color: var(--theme-border);
+}
+
+[data-theme='dark'] .planning-panel summary {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .planning-status {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .planning-error {
+  background: var(--theme-danger-bg);
+  border-color: var(--theme-danger-border);
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .planning-card {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .planning-panel .planning-tooth {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .planning-table-wrap {
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .planning-panel thead th {
+  background: var(--theme-surface-elevated);
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .planning-panel :is(th, td) {
+  border-bottom-color: var(--theme-border);
+}
+
+[data-theme='dark'] .planning-site-list li {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .advanced-workspace {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .advanced-heading h2 {
+  color: var(--theme-ink);
+}
+
+/* ==========================================================================
+   Tomography & CBCT Panels
+   ========================================================================== */
+[data-theme='dark'] .tomography-panel {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tomography-panel h2,
+[data-theme='dark'] .tomography-panel h3 {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tomography-panel h3 small,
+[data-theme='dark'] .tomography-header p,
+[data-theme='dark'] .tomography-preview-option,
+[data-theme='dark'] .tomography-empty p,
+[data-theme='dark'] .tomography-note,
+[data-theme='dark'] .tomography-panel fieldset p,
+[data-theme='dark'] .tomography-measure-toolbar span,
+[data-theme='dark'] .tomography-registration p,
+[data-theme='dark'] .tomography-planning-sharing span {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tomography-panel button {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tomography-panel button:hover:enabled {
+  background: var(--theme-surface-highlight);
+  border-color: var(--theme-blue);
+}
+
+[data-theme='dark'] .tomography-panel button[aria-pressed="true"] {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .tomography-error {
+  background: var(--theme-danger-bg);
+  border-color: var(--theme-danger-border);
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .tomography-warning {
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning-border);
+  color: var(--theme-warning-text);
+}
+
+[data-theme='dark'] .tomography-notice {
+  background: var(--theme-blue-soft);
+  border-color: var(--theme-blue-border);
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .tomography-empty {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tomography-empty strong {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tomography-volume-summary {
+  background: var(--theme-surface-elevated);
+}
+
+[data-theme='dark'] .tomography-volume-summary strong {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tomography-panel fieldset {
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tomography-panel legend {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .tomography-crosshair-controls {
+  background: var(--theme-surface-elevated);
+}
+
+[data-theme='dark'] .tomography-slice {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tomography-slice-position {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tomography-registration,
+[data-theme='dark'] .tomography-warnings {
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tomography-panel summary {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .tomography-pairs td,
+[data-theme='dark'] .tomography-pairs th {
+  border-bottom-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tomography-pairs th {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tomography-planning-sharing {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-overlay-controls {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-overlay-heading strong {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-overlay-heading span,
+[data-theme='dark'] .cbct-overlay-actions > label span {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .cbct-overlay-controls .cbct-overlay-error {
+  background: var(--theme-danger-bg);
+  border: 1px solid var(--theme-danger-border);
+  color: var(--theme-danger-text);
+}
+
+/* ==========================================================================
+   Patient View Dark Polish
+   ========================================================================== */
+[data-theme='dark'] .patient-viewport-box {
+  border-color: var(--pat-border);
+}
+
+[data-theme='dark'] .patient-loading-overlay {
+  background: rgba(12, 16, 23, 0.88);
+  color: var(--pat-ink);
+}
