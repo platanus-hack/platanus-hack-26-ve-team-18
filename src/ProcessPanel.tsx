@@ -1,5 +1,8 @@
 import { useId } from 'react';
 import { AnthropicModelSelect } from './AnthropicModelSelect';
+import { AIActivity } from './AIActivity';
+import type { CasePlanningResult } from './case-planning-types';
+import type { PlanningActivity } from './planning-events';
 import type { ProcessState } from './guided-process';
 import './process-panel.css';
 
@@ -29,6 +32,8 @@ export interface ProcessPanelProps {
   canPause?: boolean;
   review?: { text: string; model: string };
   alignmentNotice?: string;
+  aiActivity?: PlanningActivity[];
+  assessment?: CasePlanningResult | null;
 }
 
 const STATUS_LABELS: Record<ProcessState['status'], string> = {
@@ -76,6 +81,10 @@ export function ProcessPanel(props: ProcessPanelProps) {
     : activeIndex >= 0 ? activeIndex : state.steps.findIndex(step => step.status === 'pending');
   const startLabel = aiConfigured ? 'Start AI workflow' : 'Start local workflow';
   const canStart = state.canStart && aiConfigured !== null && !sessionBusy;
+  const hasAIActivity = !!props.aiActivity?.length || !!props.assessment?.execution;
+  const hasAIContext = hasAIActivity || aiConfigured === true && state.assessmentSource !== 'local' && state.steps[0]?.status === 'complete';
+  const waitingForAI = state.status === 'running' && state.steps.some(step => step.status === 'running'
+    && (step.id === 'plan' || step.id === 'review' && state.assessmentSource === 'ai'));
 
   const primaryAction = state.status === 'empty' || (needsAttention && !hasDraft && props.scanCount === 0)
     ? { label: 'Add patient files', onClick: props.onImport, disabled: sessionBusy }
@@ -123,8 +132,14 @@ export function ProcessPanel(props: ProcessPanelProps) {
       </li>)}
     </ol>
 
+    <AIActivity aiActivity={props.aiActivity} assessment={props.assessment}
+      status={!hasAIContext ? undefined
+        : state.status === 'paused' ? 'cancelled' : state.status === 'error' ? 'error'
+          : state.status === 'needs-input' ? 'incomplete' : reviewing ? hasAIActivity ? 'complete' : undefined
+            : waitingForAI || working && hasAIActivity ? 'running' : undefined} />
+
     {(reviewing || (needsAttention && hasDraft)) && <div className="process-panel__review">
-      <p className="process-panel__source">{state.assessmentSource === 'ai' ? 'AI-assisted assessment' : state.assessmentSource === 'local' ? 'Local geometry assessment' : 'Case summary'}</p>
+    <p className="process-panel__source">{state.assessmentSource === 'ai' ? 'AI-directed design' : state.assessmentSource === 'local' ? 'Local geometry assessment' : 'Case summary'}</p>
       <dl className="process-panel__metrics">
         <div><dt>{state.generatedCount === 1 ? 'Concept created' : 'Concepts created'}</dt><dd>{state.generatedCount.toLocaleString()}</dd></div>
         <div><dt>Surface {state.measuredPairs === 1 ? 'pair' : 'pairs'} reported</dt><dd>{state.measurementsReady ? state.measuredPairs.toLocaleString() : '—'}</dd></div>
@@ -136,7 +151,7 @@ export function ProcessPanel(props: ProcessPanelProps) {
       <h3>AI draft review <span>· {props.review.model}</span></h3>
       <p>{props.review.text.slice(0, 260)}{props.review.text.length > 260 ? '…' : ''}</p>
       {props.review.text.length > 260 && <details><summary>Read full review</summary><p>{props.review.text}</p></details>}
-      <small>Observations annotate the draft without an approval step. Clinical fit remains unvalidated.</small>
+      <small>AI revisions are measured locally and retained only when the host accepts them. Clinical fit remains unvalidated.</small>
     </section>}
 
     {(needsAttention || reviewing) && issues.length > 0 && <div className="process-panel__issues" aria-labelledby={`${id}-issues`}>
@@ -155,7 +170,7 @@ export function ProcessPanel(props: ProcessPanelProps) {
     {state.status !== 'empty' && state.status !== 'paused' && !reviewing && <div className="process-panel__provider" id={`${id}-provider`}>
       <p className="process-panel__provider-label">{aiConfigured === null ? 'Checking AI availability' : aiConfigured ? `Anthropic${props.modelLabel ? ` · ${props.modelLabel}` : ''}` : 'Local workflow'}</p>
       <p>{aiConfigured === null ? 'Provider availability must be resolved before starting.' : aiConfigured
-        ? 'Starting sends rendered views and case measurements to Anthropic for planning, then a final review after local checks. Up to two AI requests. Raw mesh files stay local.'
+        ? 'AI uses the repository design skill to review regions, choose sites and design implant, pilar and crown parameters. Local tools build and measure those choices. Up to 6 bounded AI requests share rendered views and measurements for planning, measured follow-up and final review; raw mesh files stay local. Requested revisions remain pending until local work returns an applied result.'
         : 'AI is not configured. The workflow uses local geometry.'}</p>
     </div>}
 

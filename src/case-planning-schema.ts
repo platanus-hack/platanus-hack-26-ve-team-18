@@ -4,6 +4,9 @@ import { anthropicModelIdSchema } from './anthropic-models.ts';
 import type { CasePlanningRequest, CasePlanningResult } from './case-planning-types.ts';
 import { isFdiTooth, toothArch } from './teeth.ts';
 import { tomographyEvidenceSchema } from './tomography-evidence.ts';
+import { restorationGenerationDesignSchema } from './restoration-generation.ts';
+import { planningRegionReviewSchema, planningSiteReviewSchema } from './planning-decisions.ts';
+import type { PlanningRegionReview } from './planning-decisions.ts';
 
 export const MAX_PLANNING_VIEWS = 8;
 export const MAX_PLANNING_IMAGE_BYTES = 1.5 * 1024 * 1024;
@@ -12,12 +15,19 @@ const boundedEvidenceStrings = z.array(z.string().max(600)).max(12);
 const scanId = z.string().regex(/^scan-(?:[1-9]|[1-5]\d|6[0-4])$/);
 const viewId = z.string().regex(/^view-[1-8]$/);
 const candidateId = z.number().int().min(0).max(10_000_000);
+const preparedToothReference = z.strictObject({ sourceId: scanId, candidateId, fdi: z.number().int().refine(isFdiTooth).nullable(), confidence: z.number().finite().min(0).max(1) });
+const preparedSiteRelationships = z.strictObject({
+  adjacent: z.strictObject({ mesial: preparedToothReference.nullable(), distal: preparedToothReference.nullable() }),
+  contralateral: preparedToothReference.nullable(),
+  opposing: z.strictObject({ sourceId: scanId, teeth: z.array(preparedToothReference).max(32), poseVerified: z.boolean() }).nullable(),
+});
 export const planningExecutionSchema = z.strictObject({
   requestedModel: z.string().max(160), actualModel: z.string().max(160), provider: z.string().max(160),
-  inputTokens: z.number().int().nonnegative().nullable(), outputTokens: z.number().int().nonnegative().nullable(), providerSteps: z.number().int().min(0).max(3), durationMs: z.number().finite().nonnegative(),
-  limits: z.strictObject({ providerSteps: z.number().int().min(1).max(3), toolCalls: z.number().int().min(1).max(16), outputTokensPerStep: z.number().int().min(1).max(8192) }),
-  toolResults: z.array(z.strictObject({ name: z.string().max(100), input: z.unknown(), output: z.unknown() })).max(16),
-  draftRequests: z.array(z.strictObject({ siteId: z.string().min(1).max(160), fdi: z.number().int().refine((value): boolean => isFdiTooth(value)), anatomy: z.enum(['incisor', 'canine', 'premolar', 'molar']), rationale: z.string().max(600) })).max(16),
+  inputTokens: z.number().int().nonnegative().nullable(), outputTokens: z.number().int().nonnegative().nullable(), providerSteps: z.number().int().min(0).max(6), durationMs: z.number().finite().nonnegative(),
+  limits: z.strictObject({ providerSteps: z.number().int().min(1).max(6), toolCalls: z.number().int().min(1).max(48), outputTokensPerStep: z.number().int().min(1).max(8192) }),
+  toolResults: z.array(z.strictObject({ name: z.string().max(100), input: z.unknown(), output: z.unknown(), origin: z.literal('structured-command').optional() })).max(48),
+  regionReviews: z.array(planningRegionReviewSchema).max(128).optional(), siteReviews: z.array(planningSiteReviewSchema).max(128).optional(),
+  draftRequests: z.array(z.strictObject({ siteId: z.string().min(1).max(160), fdi: z.number().int().refine((value): boolean => isFdiTooth(value)), anatomy: z.enum(['incisor', 'canine', 'premolar', 'molar']), rationale: z.string().max(600), design: restorationGenerationDesignSchema.optional() })).max(16),
 });
 
 /** A single linear pass, including canonical padding bits; no recursive/backtracking regex. */
@@ -41,6 +51,8 @@ const planningSnapshot = assistantSnapshotSchema.refine(
 export const casePlanningRequestSchema = z.strictObject({
   model: anthropicModelIdSchema.optional(),
   tomography: tomographyEvidenceSchema.optional(),
+  measurementContext: z.strictObject({ mmPerUnit: z.number().finite().positive().nullable(), scaleStatus: z.enum(['unconfirmed', 'clinician-entered']), scaleSource: z.string().max(300), biteReviewed: z.boolean(),
+    ruler: z.strictObject({ distance: z.number().finite().nonnegative(), units: z.literal('file units (u)'), sourceIds: z.array(scanId).min(1).max(2), method: z.literal('picked-point-straight-line') }).optional() }).optional(),
   revision: z.string().min(1).max(160).regex(/^[A-Za-z0-9_.:-]+$/),
   snapshot: planningSnapshot,
   sources: z.array(z.strictObject({
@@ -69,16 +81,50 @@ export const casePlanningRequestSchema = z.strictObject({
   preparation: z.strictObject({
     threshold: z.number().finite().min(0).max(1).optional(),
     sources: z.array(z.strictObject({ sourceId: scanId, method: z.string().max(160), crownRegions: z.number().int().min(0).max(128), unresolvedTriangles: z.number().int().min(0).max(10_000_000), boundaryFaces: z.number().int().min(0).max(10_000_000).nullable(), colourAvailable: z.boolean() })).max(64),
-    sites: z.array(z.strictObject({ id: z.string().min(1).max(160), sourceId: scanId, fdi: z.number().int().refine(isFdiTooth).nullable(), status: z.enum(['proposed-missing', 'dentist-confirmed-missing', 'not-scanned', 'segmentation-unresolved', 'identity-unresolved']), confidence: z.number().finite().min(0).max(1), localized: z.boolean(), supporting: boundedEvidenceStrings, conflicting: boundedEvidenceStrings, questions: boundedEvidenceStrings })).max(128),
+    regions: z.array(z.strictObject({ sourceId: scanId, candidateId, fdi: z.number().int().refine(isFdiTooth).nullable(), confidence: z.number().finite().min(0).max(1), needsReview: z.boolean(),
+      kind: z.string().max(80), dimensions: z.strictObject({ mesiodistal: z.number().finite().nonnegative().nullable(), buccolingual: z.number().finite().nonnegative().nullable(), height: z.number().finite().nonnegative().nullable() }),
+      peaks: z.number().int().nonnegative().nullable(), flags: boundedEvidenceStrings, protectedTriangles: z.number().int().min(0).max(10_000_000), neighbors: z.array(candidateId).max(2) })).max(2048).optional(),
+    sites: z.array(z.strictObject({ id: z.string().min(1).max(160), sourceId: scanId, fdi: z.number().int().refine(isFdiTooth).nullable(), status: z.enum(['proposed-missing', 'dentist-confirmed-missing', 'not-scanned', 'segmentation-unresolved', 'identity-unresolved']), confidence: z.number().finite().min(0).max(1), localized: z.boolean(), supporting: boundedEvidenceStrings, conflicting: boundedEvidenceStrings, questions: boundedEvidenceStrings,
+      kind: z.enum(['bounded', 'terminal', 'distal-extension', 'chart']).optional(), slotCount: z.number().int().min(0).max(32).optional(), geometricDraftEligible: z.boolean().optional(), relationships: preparedSiteRelationships.optional(),
+      space: z.strictObject({ unit: z.literal('file units (u)'), mesiodistal: z.number().finite().nullable(), buccolingual: z.number().finite().nullable(), sampledVertical: z.number().finite().nullable(), verticalMethod: z.string().max(600),
+        crownHeight: z.number().finite().nullable().optional(), proximalGap: z.number().finite().nullable().optional(), widthMethod: z.string().max(600).optional(), heightMethod: z.string().max(600).optional() }).optional(),
+    })).max(128),
   }).optional(),
 }).superRefine((request, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
   const sources = new Set(request.sources.map(source => source.id));
+  if (request.measurementContext?.ruler?.sourceIds.some(id => !sources.has(id))) issue('Ruler evidence must reference supplied source scans.');
   if (sources.size !== request.sources.length) issue('Source identifiers must be unique.');
   if (request.preparation) {
     if (new Set(request.preparation.sites.map(site => site.id)).size !== request.preparation.sites.length) issue('Prepared site identifiers must be unique.');
     for (const item of [...request.preparation.sources, ...request.preparation.sites]) if (!sources.has(item.sourceId)) issue('Prepared evidence must reference a supplied source.');
+    const regionIds = new Set<string>();
+    for (const region of request.preparation.regions ?? []) {
+      const source = request.sources.find(source => source.id === region.sourceId), key = `${region.sourceId}:${region.candidateId}`;
+      if (!source?.candidates.some(candidate => candidate.id === region.candidateId) || regionIds.has(key)) issue('Region evidence must reference distinct supplied candidates.');
+      regionIds.add(key);
+      if (region.fdi !== null && source?.arch !== toothArch(region.fdi)) issue('Region identity must match its source arch.');
+      if (region.neighbors.some(id => !source?.candidates.some(candidate => candidate.id === id))) issue('Region neighbors must reference candidates on the same source.');
+    }
     for (const site of request.preparation.sites) if (site.fdi !== null && request.sources.find(source => source.id === site.sourceId)?.arch !== toothArch(site.fdi)) issue('Prepared site FDI must match its source arch.');
+    for (const site of request.preparation.sites) {
+      const relations = site.relationships, arch = request.sources.find(source => source.id === site.sourceId)?.arch;
+      if (!relations) continue;
+      for (const tooth of [relations.adjacent.mesial, relations.adjacent.distal, relations.contralateral, ...(relations.opposing?.teeth ?? [])]) {
+        if (!tooth) continue;
+        const source = request.sources.find(source => source.id === tooth.sourceId);
+        if (!source || !source.candidates.some(candidate => candidate.id === tooth.candidateId)) issue('Tooth relationships must reference supplied crown candidates.');
+        if (tooth.fdi !== null && source?.arch !== toothArch(tooth.fdi)) issue('Relationship FDI must match its source arch.');
+      }
+      for (const tooth of [relations.adjacent.mesial, relations.adjacent.distal, relations.contralateral]) {
+        if (tooth && request.sources.find(source => source.id === tooth.sourceId)?.arch !== arch) issue('Adjacent and contralateral teeth must belong to the same arch.');
+      }
+      if (relations.opposing) {
+        const opponent = request.sources.find(source => source.id === relations.opposing!.sourceId);
+        if (!opponent || opponent.arch === arch || relations.opposing.teeth.some(tooth => tooth.sourceId !== opponent.id)) issue('Opposing relationships must reference the opposite arch source.');
+        if (new Set(relations.opposing.teeth.map(tooth => tooth.candidateId)).size !== relations.opposing.teeth.length) issue('Opposing crown references must be unique.');
+      }
+    }
   }
   for (const source of request.sources) {
     const part = request.snapshot.parts.find(part => part.id === source.id);
@@ -148,10 +194,20 @@ export function checkClinicalNumbers(value: string) {
 }
 
 /** Revision is copied from the submitted case, never authored by the model. */
-export function validateCasePlanning(output: unknown, request: CasePlanningRequest): Omit<CasePlanningResult, 'model'> {
+export function validateCasePlanning(output: unknown, request: CasePlanningRequest, regionReviews: PlanningRegionReview[] = []): Omit<CasePlanningResult, 'model'> {
   const parsed = casePlanningOutputSchema.safeParse(output);
   if (!parsed.success) return fail('The planning response has an invalid shape.');
   const data = parsed.data;
+  // Tool decisions are the canonical draft interpretation. The final prose
+  // cannot silently restore a region the model excluded through its tool.
+  for (const review of regionReviews) {
+    const mapping = { sourceId: review.sourceId, candidateId: review.candidateId,
+      fdi: review.classification === 'tooth' && review.decision === 'use' ? review.fdi : null,
+      needsReview: review.decision !== 'use' || review.classification !== 'tooth' || review.fdi === null,
+      reason: `AI region setting (${review.classification}; ${review.decision}): ${review.rationale}` };
+    const index = data.mappings.findIndex(item => item.sourceId === review.sourceId && item.candidateId === review.candidateId);
+    if (index < 0) data.mappings.push(mapping); else data.mappings[index] = mapping;
+  }
   // Check original strings before clipping or semantic validation so prescriptions cannot hide beyond a display limit.
   for (const value of [data.summary, ...data.mappings.map(item => item.reason), ...data.findings.flatMap(item => [item.title, item.detail]),
     ...data.actions.flatMap(item => [item.title, item.rationale, ...item.prerequisites]), ...data.designs.map(item => item.rationale), ...data.limitations]) checkClinicalNumbers(value);

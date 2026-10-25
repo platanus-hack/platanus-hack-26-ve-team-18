@@ -3,11 +3,16 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { ModelPart, Vec3 } from './models';
 import type { CollisionReport } from './collision';
+import { collisionSampleState } from './presentation.ts';
 import { partMatrix } from './pose.ts';
 import { fitCameraToBounds, InspectionCamera } from './camera.ts';
-import type { SurfaceAnchor, ToothEditEvent, ToothTool, ToothViewState } from './tooth-types';
+import type { SurfaceAnchor, ToothEditEvent, ToothTool } from './tooth-types';
+import { candidateToothDisplay, toothDisplay, type ToothDisplayViewState } from './tooth-display.ts';
 import { buildCrownMesh, templateShape } from './crown-anatomy.ts';
 import { displayNormals, restorationAppearance } from './restoration-appearance.ts';
+import { crownEnamel } from './crown-enamel.ts';
+import { projectMeshBounds, type ProjectionTarget, type ScreenBounds } from './viewport-projection.ts';
+import { resolveMeasurement, type Measurement, type MeasurementAnchor, type RulerState } from './measurement.ts';
 
 export interface Probe {
   id: string;
@@ -44,6 +49,8 @@ export function hasSurfaceTexture(part: ModelPart): boolean {
 }
 
 export function surfaceColor(part: ModelPart, corner: number, mapped: boolean, target: THREE.Color): THREE.Color {
+  const enamel = crownEnamel(part);
+  if (enamel) return target.fromArray(enamel.colors, corner * 3);
   if (part.presentationColor) return target.set(part.presentationColor);
   if (mapped) return target.setRGB(1, 1, 1);
   if (part.colors?.length === part.positions.length) return target.fromArray(part.colors, corner * 3);
@@ -112,15 +119,19 @@ export function createInspectionMaterial(): THREE.MeshStandardMaterial {
 export function createPartMaterial(part: ModelPart, environment: THREE.Texture | null = null): THREE.MeshStandardMaterial {
   const look = restorationAppearance(part);
   if (!look) return createInspectionMaterial();
+  const enamel = crownEnamel(part);
   const material = withInspectionOverlay(new THREE.MeshPhysicalMaterial({
     vertexColors: true, side: THREE.DoubleSide, roughness: look.roughness, metalness: look.metalness,
     clearcoat: look.clearcoat, clearcoatRoughness: look.clearcoatRoughness, envMap: environment, envMapIntensity: look.envMapIntensity,
-  }));
-  material.userData.presentation = { source: 'restoration-metadata', component: look.component, finish: look.finish, displayOnly: true };
+  }), !!enamel, enamel?.variation);
+  material.userData.presentation = { source: 'restoration-metadata', component: look.component, finish: look.finish, displayOnly: true,
+    ...(enamel ? { colorSource: enamel.source, colorSamples: enamel.samples, interpretation: 'Illustrative scan colour approximation; not a calibrated dental shade.' } : {}) };
   return material;
 }
 
-function withInspectionOverlay<T extends THREE.MeshStandardMaterial>(material: T): T {
+function withInspectionOverlay<T extends THREE.MeshStandardMaterial>(material: T, enamel = false, variation = 0.065): T {
+  const enamelVariation = { value: variation };
+  if (enamel) material.userData.enamelVariation = enamelVariation;
   material.onBeforeCompile = shader => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec4 inspectionOverlay;\nvarying vec4 vInspectionOverlay;')
@@ -128,8 +139,46 @@ function withInspectionOverlay<T extends THREE.MeshStandardMaterial>(material: T
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec4 vInspectionOverlay;')
       .replace('#include <opaque_fragment>', 'outgoingLight = mix(outgoingLight, vInspectionOverlay.rgb, vInspectionOverlay.a);\ndiffuseColor.a = mix(diffuseColor.a, opacity, vInspectionOverlay.a);\n#include <opaque_fragment>');
+    if (enamel) {
+      shader.uniforms = { ...shader.uniforms, enamelVariation };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec3 enamelCoordinate;\nvarying vec3 vEnamelCoordinate;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEnamelCoordinate = enamelCoordinate;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vEnamelCoordinate;
+          uniform float enamelVariation;
+          float enamelHash(vec3 p) {
+            p = fract(p * 0.1031);
+            p += dot(p, p.yzx + 33.33);
+            return fract((p.x + p.y) * p.z);
+          }
+          float enamelNoise(vec3 p) {
+            vec3 cell = floor(p), f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            return 2.0 * mix(
+              mix(mix(enamelHash(cell), enamelHash(cell + vec3(1,0,0)), f.x),
+                  mix(enamelHash(cell + vec3(0,1,0)), enamelHash(cell + vec3(1,1,0)), f.x), f.y),
+              mix(mix(enamelHash(cell + vec3(0,0,1)), enamelHash(cell + vec3(1,0,1)), f.x),
+                  mix(enamelHash(cell + vec3(0,1,1)), enamelHash(cell + vec3(1,1,1)), f.x), f.y), f.z) - 1.0;
+          }`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          // Dimensionless local detail stays attached through pose/offset edits.
+          vec3 enamelP = vEnamelCoordinate + vec3(7.2, 2.6, 4.1);
+          float enamelMottle = clamp(1.8 * (0.72 * enamelNoise(enamelP * 3.2)
+            + 0.28 * enamelNoise(enamelP * 8.5)), -1.0, 1.0);
+          float enamelWarmth = enamelNoise(enamelP * 4.7 + vec3(3.1, 1.7, 5.4));
+          float enamelGrain = enamelNoise(enamelP * 83.0);
+          float enamelStriae = sin(vEnamelCoordinate.z * 205.0 + sin(vEnamelCoordinate.x * 19.0) + sin(vEnamelCoordinate.y * 23.0));
+          // Yellow/blue temperature shifts keep green between red and blue,
+          // avoiding a copied pink tissue tint. Bound noise to ten percent.
+          vec3 enamelTint = enamelVariation * (vec3(enamelMottle) + vec3(0.16, 0.0, -0.38) * enamelWarmth);
+          enamelTint += vec3(0.01 * enamelGrain + 0.003 * enamelStriae);
+          diffuseColor.rgb *= vec3(1.0) + clamp(enamelTint, vec3(-0.1), vec3(0.1));`)
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor + 0.035 * enamelMottle + 0.018 * enamelGrain + 0.006 * enamelStriae, 0.0, 1.0);');
+    }
   };
-  material.customProgramCacheKey = () => 'platanus-inspection-overlay-v2';
+  material.customProgramCacheKey = () => `platanus-inspection-overlay-v4${enamel ? '-enamel' : ''}`;
   return material;
 }
 
@@ -166,7 +215,7 @@ export class MeshViewer {
   private frame = 0;
   private disposed = false;
   private events = new AbortController();
-  private toothView: ToothViewState | null = null;
+  private toothView: ToothDisplayViewState | null = null;
   private editablePartIds = new Set<string>();
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
@@ -177,10 +226,18 @@ export class MeshViewer {
   private onToothEdit: ((event: ToothEditEvent) => void) | undefined;
   private autoRegionLabels: Uint8Array | null = null;
   private fittedBounds: THREE.Box3 | null = null;
+  private projectionTarget: { partIds: readonly string[]; onChange: (bounds: ScreenBounds | null) => void } | null = null;
+  private rulerEnabled = false;
+  private rulerAnchors: MeasurementAnchor[] = [];
+  private measurement: Measurement = { points: [], distance: null };
+  private rulerCleared = false;
+  private rulerSnapshot = '';
+  private onRulerChange?: (state: RulerState) => void;
 
-  constructor(host: HTMLDivElement, onProbe: (probe: Probe) => void, onError: (message: string) => void, onNavigationMode: (mode: NavigationMode) => void = () => {}, onToothEdit?: (event: ToothEditEvent) => void) {
+  constructor(host: HTMLDivElement, onProbe: (probe: Probe) => void, onError: (message: string) => void, onNavigationMode: (mode: NavigationMode) => void = () => {}, onToothEdit?: (event: ToothEditEvent) => void, onRulerChange?: (state: RulerState) => void) {
     this.onNavigationMode = onNavigationMode;
     this.onToothEdit = onToothEdit;
+    this.onRulerChange = onRulerChange;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -294,6 +351,17 @@ export class MeshViewer {
       if (!inspect || !canvas.contains(event.target as Node)) return;
       const hit = this.hitSurface(event);
       if (!hit || hit.faceIndex == null) return;
+      if (this.rulerEnabled) {
+        const anchor = this.surfaceAnchor(hit);
+        if (anchor) {
+          if (this.rulerAnchors.length === 2) this.rulerAnchors = [];
+          this.rulerAnchors.push({ ...anchor, sourcePositions: this.sources.get(anchor.partId)!.positions });
+          this.rulerCleared = false;
+          this.refreshMeasurement();
+          this.draw();
+        }
+        return;
+      }
       const face = this.originalFace(hit);
       const id = hit.object.userData.id as string;
       const part = this.sources.get(id)!;
@@ -311,7 +379,7 @@ export class MeshViewer {
       onProbe({ id, face, vertex, position, distance: signed !== undefined && Number.isFinite(signed) ? signed : null, intersecting: !!analysis?.intersecting[face] });
     }, { signal: this.events.signal });
     canvas.addEventListener('dblclick', event => {
-      if (this.editing || !pivotClick || event.button !== 0 || modified(event)) return;
+      if (this.editing || this.rulerEnabled || !pivotClick || event.button !== 0 || modified(event)) return;
       const hit = this.hitSurface(event);
       if (!hit) return;
       event.preventDefault();
@@ -326,6 +394,7 @@ export class MeshViewer {
         if (event.shiftKey) this.focusSelected(); else this.fit();
       } else if (event.key === 'Escape') {
         event.preventDefault();
+        if (this.rulerEnabled) { this.setRulerEnabled(false); event.stopPropagation(); }
         this.setNavigationMode('orbit');
       }
     }, { signal: this.events.signal });
@@ -367,6 +436,67 @@ export class MeshViewer {
 
   setToothCallback(callback?: (event: ToothEditEvent) => void) { this.onToothEdit = callback; }
 
+  setRulerEnabled(enabled: boolean) {
+    this.cancelGesture();
+    if (enabled && this.editing) this.setToothView({ ...this.toothView!, tool: 'inspect' });
+    this.rulerEnabled = enabled;
+    this.configureNavigation();
+    this.draw();
+  }
+
+  clearMeasurement() {
+    this.cancelGesture();
+    this.rulerAnchors = [];
+    this.rulerCleared = false;
+    this.refreshMeasurement();
+    this.draw();
+  }
+
+  private refreshMeasurement() {
+    if (!this.rulerAnchors) return;
+    const resolved = resolveMeasurement(this.rulerAnchors, this.sources);
+    if (!resolved) { this.rulerAnchors = []; this.rulerCleared = true; }
+    this.measurement = resolved ?? { points: [], distance: null };
+    if (![...this.sources.values()].some(part => !part.reference && part.role !== 'bite')) this.rulerEnabled = false;
+  }
+
+  /** Project only for presentation; distance always comes from workspace coordinates. */
+  private updateRuler() {
+    if (!this.onRulerChange) return;
+    const size = this.renderer.getSize(new THREE.Vector2());
+    const screenPoints = this.measurement.points.map(point => {
+      const mesh = this.meshes.get(point.partId);
+      if (!mesh?.visible || mesh.material.opacity <= 0) return null;
+      if (this.toothView?.isolate && this.toothView.labels[point.partId]?.[point.face] !== this.toothView.activeTooth
+        && !(this.toothView.draft?.partId === point.partId && this.toothView.draft.faces.includes(point.face))) return null;
+      const projected = new THREE.Vector3(...point.position).applyMatrix4(this.root.matrixWorld).project(this.camera);
+      if (![projected.x, projected.y, projected.z].every(Number.isFinite) || projected.z < -1 || projected.z > 1) return null;
+      return [(projected.x + 1) * size.x / 2, (1 - projected.y) * size.y / 2] as [number, number];
+    });
+    const state: RulerState = { ...this.measurement, enabled: this.rulerEnabled, cleared: this.rulerCleared, screenPoints };
+    const snapshot = JSON.stringify(state);
+    if (snapshot !== this.rulerSnapshot) { this.rulerSnapshot = snapshot; this.onRulerChange(state); }
+  }
+
+  /** DOM overlays subscribe to the existing draw path; captures remain canvas-only. */
+  setProjectionTarget(partIds: readonly string[], onChange: ((bounds: ScreenBounds | null) => void) | null) {
+    this.projectionTarget = onChange ? { partIds: [...partIds], onChange } : null;
+    if (onChange) this.draw();
+  }
+
+  private updateProjectionTarget() {
+    if (!this.projectionTarget) return;
+    const targets: ProjectionTarget[] = [];
+    for (const id of this.projectionTarget.partIds) {
+      const mesh = this.meshes.get(id);
+      if (!mesh?.visible || mesh.material.opacity <= 0) continue;
+      const bounds = mesh.userData.displayBounds as THREE.Box3 | undefined ?? mesh.geometry.boundingBox;
+      if (bounds) targets.push({ bounds, matrixWorld: mesh.matrixWorld });
+    }
+    const size = this.renderer.getSize(new THREE.Vector2());
+    this.projectionTarget.onChange(projectMeshBounds(targets, this.camera, size.x, size.y));
+  }
+
   /** Read pixels immediately after rendering; no preserveDrawingBuffer or patient labels. */
   capture(): ViewerCapture {
     if (this.disposed || this.renderer.getContext().isContextLost()) throw new Error('Restart the 3D view before capturing it.');
@@ -389,7 +519,7 @@ export class MeshViewer {
     } };
   }
 
-  setToothView(state: ToothViewState | null) {
+  setToothView(state: ToothDisplayViewState | null) {
     const wasEditing = this.editing;
     const previous = this.toothView;
     if (previous?.autoOverlay?.candidates !== state?.autoOverlay?.candidates || previous?.autoOverlay?.partId !== state?.autoOverlay?.partId) {
@@ -400,6 +530,7 @@ export class MeshViewer {
     }
     if (previous?.tool !== state?.tool || previous?.activeTooth !== state?.activeTooth || previous?.enabled !== state?.enabled || previous?.isolate !== state?.isolate || previous?.editablePartIds.join('|') !== state?.editablePartIds.join('|')) this.cancelGesture();
     this.toothView = state;
+    if (this.editing) this.rulerEnabled = false;
     this.editablePartIds = new Set(state?.editablePartIds);
     if (wasEditing !== this.editing) this.replaceControls(this.controls.target.clone());
     else this.configureNavigation();
@@ -468,8 +599,10 @@ export class MeshViewer {
     // finger can cancel the stroke and start the normal pan/zoom gesture.
     this.controls.mouseButtons = { LEFT: this.editing ? null : pan ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
     this.controls.touches = { ONE: this.editing ? null : pan ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
-    this.renderer.domElement.style.cursor = this.editing ? 'crosshair' : pan ? 'move' : 'grab';
-    this.renderer.domElement.setAttribute('aria-label', this.editing
+    this.renderer.domElement.style.cursor = this.editing || this.rulerEnabled ? 'crosshair' : pan ? 'move' : 'grab';
+    this.renderer.domElement.setAttribute('aria-label', this.rulerEnabled
+      ? 'Interactive 3D mesh viewer. Ruler: click or tap two surface points to measure a straight-line distance using the scan scale shown in the ruler. Drag to navigate, scroll to zoom. Escape stops measuring.'
+      : this.editing
       ? `Interactive 3D mesh viewer. Tooth ${this.toothView!.activeTooth}, ${this.toothView!.tool} tool. Paint, erase and exclude use left drag or one finger; boundary, seed and site use a click or tap. Right drag pans; scroll zooms; two fingers pan and zoom. F fits the displayed region; Shift+F focuses it.`
       : 'Interactive 3D mesh viewer. Orbit or pan with the toolbar, scroll to zoom, click to inspect, double-click to set the orbit pivot. With this canvas focused: F fits all, Shift+F focuses the selected model, Escape returns to orbit.');
   }
@@ -496,6 +629,8 @@ export class MeshViewer {
       try {
         const changed = this.controls.update();
         this.renderer.render(this.scene, this.camera);
+        this.updateProjectionTarget();
+        this.updateRuler();
         if (changed) this.draw();
       } catch { /* Context loss is reported by the canvas event. */ }
     });
@@ -553,6 +688,17 @@ export class MeshViewer {
         if (uv) mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
         else mesh.geometry.deleteAttribute('uv');
       }
+      const enamel = crownEnamel(part);
+      const oldEnamel = mesh.geometry.getAttribute('enamelCoordinate');
+      if (enamel ? oldEnamel?.array !== enamel.coordinates : !!oldEnamel) {
+        mesh.geometry.dispose();
+        if (enamel) mesh.geometry.setAttribute('enamelCoordinate', new THREE.BufferAttribute(enamel.coordinates, 3));
+        else mesh.geometry.deleteAttribute('enamelCoordinate');
+      }
+      if (enamel) {
+        Object.assign(mesh.material.userData.presentation, { colorSource: enamel.source, colorSamples: enamel.samples });
+        mesh.material.userData.enamelVariation.value = enamel.variation;
+      }
       mesh.visible = part.visible;
       mesh.matrixAutoUpdate = false;
       mesh.matrix.copy(partMatrix(part));
@@ -571,6 +717,7 @@ export class MeshViewer {
     this.applyIsolation();
     this.rebuildAnnotations();
     this.updateBounds();
+    this.refreshMeasurement();
     if (added) this.fit();
     this.paint();
   }
@@ -720,7 +867,7 @@ export class MeshViewer {
       }
       return group;
     };
-    const addMarker = (anchor: SurfaceAnchor, color: string, size: number, tooth?: number | string) => {
+    const addMarker = (anchor: SurfaceAnchor, color: string, size: number, tooth?: number | string, note = '') => {
       const group = groupFor(anchor.partId);
       const mesh = this.meshes.get(anchor.partId);
       if (!group || !mesh || anchor.face < 0 || anchor.face >= this.sources.get(anchor.partId)!.triangles || !anchor.point.every(Number.isFinite)) return;
@@ -732,36 +879,48 @@ export class MeshViewer {
       group.add(marker);
       if (tooth !== undefined) {
         const canvas = document.createElement('canvas');
-        canvas.width = 128; canvas.height = 64;
+        canvas.width = 160; canvas.height = note ? 96 : 64;
         const context = canvas.getContext('2d');
         if (!context) return;
         context.fillStyle = color;
-        context.fillRect(4, 4, 120, 56);
+        context.fillRect(4, 4, canvas.width - 8, canvas.height - 8);
         context.fillStyle = '#ffffff';
         context.font = 'bold 36px sans-serif';
         context.textAlign = 'center'; context.textBaseline = 'middle';
-        context.fillText(String(tooth), 64, 34);
+        context.fillText(String(tooth), canvas.width / 2, 34);
+        if (note) {
+          context.font = '600 22px sans-serif';
+          context.fillText(note, canvas.width / 2, 72);
+        }
         const texture = new THREE.CanvasTexture(canvas);
         texture.colorSpace = THREE.SRGBColorSpace;
         const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false }));
         sprite.position.copy(marker.position).add(new THREE.Vector3(0, 0, scale * 3));
-        sprite.scale.set(scale * 7, scale * 3.5, 1);
+        sprite.scale.set(scale * 7, scale * 7 * canvas.height / canvas.width, 1);
         sprite.renderOrder = 11;
         group.add(sprite);
       }
     };
     const overlay = state.autoOverlay;
-    if (overlay && !state.isolate) for (const candidate of overlay.candidates) addMarker({ partId: overlay.partId, face: 0, point: candidate.centroid }, candidate.id === overlay.selectedCandidate ? '#087c91' : '#4775a6', .65, `C${candidate.id}`);
+    if (overlay && !state.isolate) for (const candidate of overlay.candidates) {
+      const role = this.sources.get(overlay.partId)?.role;
+      const display = candidateToothDisplay(candidate, {
+        labels: state.labels[overlay.partId], recordedLabels: state.recordedLabels?.[overlay.partId],
+        arch: role === 'upper' || role === 'lower' ? role : null,
+      });
+      addMarker({ partId: overlay.partId, face: candidate.faces[0] ?? 0, point: candidate.centroid }, candidate.id === overlay.selectedCandidate ? '#087c91' : '#4775a6', .65, display.marker, display.note);
+    }
     for (const site of state.sites) {
       if (state.isolate && site.tooth !== state.activeTooth) continue;
       const active = site.tooth === state.activeTooth;
       addMarker(site.anchor, active ? '#2563eb' : '#7188a3', active ? 1.4 : 1, site.tooth);
     }
     const planningSites = state.planningSites ?? [];
-    const activeSite = planningSites.find(site => site.id === state.focusedPlanningSiteId) ?? planningSites.find(site => site.fdi === state.activeTooth) ?? planningSites[0];
+    const activeSite = planningSites.find(site => site.id === state.focusedPlanningSiteId) ?? planningSites.find(site => site.fdi === state.activeTooth);
     for (const site of planningSites) {
       if (!site.anchor || !site.frame || site.status === 'not-scanned') continue;
-      addMarker(site.anchor, site === activeSite ? '#2563eb' : '#64748b', .75, site.fdi ?? '?');
+      const display = toothDisplay({ fdi: site.draftIdentity ? null : site.fdi, status: site.status === 'dentist-confirmed-missing' ? 'recorded' : 'uncertain' }, '?', site.arch);
+      addMarker(site.anchor, site === activeSite ? '#2563eb' : '#64748b', .75, display.marker, display.note);
       if (site !== activeSite) continue;
       const group = groupFor(site.partId), source = this.sources.get(site.partId);
       if (!group || !source) continue;
@@ -852,9 +1011,10 @@ export class MeshViewer {
         }
         // Keep active label editing readable; inspection puts contacts above labels.
         if (!marked || !this.editing) {
-          if (analysis?.intersecting[face]) { color.copy(contact); marked = true; }
+          const sampleState = collisionSampleState(!!(analysis?.crossing ?? analysis?.intersecting)?.[face], d, this.tolerance, !!analysis?.intersecting[face]);
+          if ((analysis?.crossing ?? analysis?.intersecting)?.[face]) { color.copy(contact); marked = true; }
           else if (d < 0) { color.copy(contact).lerp(deep, Math.min(-d / Math.max(analysis?.maxDepth ?? 1, 1e-12), 1)); marked = true; }
-          else if (d <= this.tolerance) { color.copy(contact).lerp(near, Math.min(d / Math.max(this.tolerance, 1e-12), 1)); marked = true; }
+          else if (sampleState === 'near') { color.copy(near); marked = true; }
         }
         overlay.setXYZW(v, color.r, color.g, color.b, marked ? 1 : 0);
       }
@@ -911,6 +1071,8 @@ export class MeshViewer {
   }
   dispose() {
     this.disposed = true;
+    this.projectionTarget = null;
+    this.onRulerChange = undefined;
     this.cancelGesture();
     cancelAnimationFrame(this.frame); this.events.abort(); this.observer.disconnect(); this.controls.dispose();
     this.clearAnnotations(); this.markerGeometry.dispose();

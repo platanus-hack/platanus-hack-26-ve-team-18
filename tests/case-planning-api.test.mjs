@@ -10,6 +10,7 @@ import { emptyToothCase } from '../src/tooth-session.ts';
 import { ANTHROPIC_MODELS } from '../src/anthropic-models.ts';
 import { createCasePlanningMiddleware, DEFAULT_PLANNING_MODEL, MAX_PLANNING_BODY_BYTES, planningViewMetadata, planningProviderOptions } from '../server/case-planning.ts';
 import { MAX_PLANNING_IMAGE_BYTES } from '../src/case-planning-schema.ts';
+import { readPlanningEvents } from '../src/planning-events.ts';
 import { evidence as tomographyEvidence, jpegUrls } from './tomography-fixtures.mjs';
 
 const jpeg = marker => Buffer.concat([Buffer.from([255, 216, 255, 224]), Buffer.from(marker), Buffer.from([255, 217])]);
@@ -29,7 +30,7 @@ const goodOutput = () => ({
   mappings: [{ sourceId: 'scan-1', candidateId: 1, fdi: 11, needsReview: false, reason: 'Central incisor morphology.' }],
   findings: [{ id: 'finding-1', fdi: 11, category: 'surface-observation', title: 'Surface color variation', detail: 'Review the visible appearance without inferring disease.', evidence: ['view-2', 'scan-1:C1'], needsClinicalReview: false }],
   actions: [{ id: 'action-1', fdi: 11, kind: 'clinical-review', title: 'Examine visible surface', rationale: 'A surface observation needs clinical context.', evidence: ['view-2'], prerequisites: ['Clinical examination; review history and texture reliability.'] }],
-  designs: [], limitations: ['Scan coverage and alignment require review.'],
+  designs: [], limitations: ['Scan coverage and alignment require review.'], workflow: { regionReviews: [], sites: [] },
 });
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };
 test('planning reserves bounded structured-output tokens with supported model-specific thinking modes', () => {
@@ -39,6 +40,170 @@ test('planning reserves bounded structured-output tokens with supported model-sp
   assert.equal(planningProviderOptions('configured-custom-model'), undefined, 'custom defaults do not receive invented provider settings');
 });
 const generated = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], finishReason: { unified: 'stop', raw: 'stop' }, usage, warnings: [] });
+
+const structuredDesign = () => ({ anatomy: 'molar', anatomySource: 'procedural-template',
+  parameters: { fixture: { radius: 1.2, length: 4.3, depth: .2, taper: .15 },
+    abutment: { radius: 1, height: .7, emergenceRadius: 1.3, angleX: 0, angleY: 2 },
+    crown: { width: 5.1, depth: 4.2, height: 3.4, cuspHeight: .15, rotation: 4 } },
+  contour: { cervicalScale: .95, occlusalScale: 1.05 } });
+const structuredSite = (patch = {}) => ({ siteId: 'site-1', decision: 'design', rationale: 'Illustrative envelope from the supplied local space.',
+  evidence: ['site-1', 'view-2'], missingEvidence: ['Clinical scale and bone evidence remain unverified.'], design: structuredDesign(), ...patch });
+function preparedBody() {
+  const payload = body();
+  payload.preparation = { sources: [], sites: [{ id: 'site-1', sourceId: 'scan-1', fdi: 16, status: 'proposed-missing', localized: true,
+    confidence: .9, supporting: ['Bounded surface space.'], conflicting: [], questions: [], kind: 'bounded', slotCount: 1,
+    space: { unit: 'file units (u)', mesiodistal: 5.5, buccolingual: 4.5, crownHeight: 4.2, sampledVertical: 4.5, verticalMethod: 'Synthetic sampled envelope.' } }] };
+  return payload;
+}
+
+test('a structured planning response executes complete model-authored decisions even without provider tool calls', async t => {
+  const output = { ...goodOutput(), workflow: { regionReviews: [], sites: [structuredSite()] } };
+  const model = new MockLanguageModelV4({ doGenerate: generated(output) });
+  const { url } = await serve(t, { languageModel: model });
+  const events = [];
+  const result = await readPlanningEvents((await post(url, preparedBody(), { Accept: 'application/x-ndjson' })).body, event => events.push(event));
+  assert.equal(model.doGenerateCalls.length, 1); assert.equal(result.execution.providerSteps, 1);
+  assert.deepEqual(result.execution.draftRequests[0].design, structuredDesign());
+  assert.equal(result.execution.siteReviews[0].decision, 'design');
+  assert.deepEqual(result.execution.toolResults.map(item => item.name), ['reviewRestorationSite', 'requestDraftComponents']);
+  assert.ok(result.execution.toolResults.every(item => item.origin === 'structured-command'));
+  const activities = events.filter(event => event.type === 'tool').map(event => event.activity);
+  assert.deepEqual(activities.map(item => item.phase), ['running', 'complete', 'running', 'complete']);
+  assert.ok(activities.every(item => item.origin === 'structured-command'));
+  assert.equal(result.execution.toolResults.at(-1).output.queued, true);
+  assert.equal(result.execution.toolResults.at(-1).output.artifactStatus, 'pending-worker');
+  assert.equal('workflow' in result, false, 'Only validated execution commands leave the server.');
+});
+
+test('the provider transports nested commands as JSON text while local validation preserves complete values', async t => {
+  const workflow = { regionReviews: [], sites: [structuredSite()] };
+  const model = new MockLanguageModelV4({ doGenerate: generated({ ...goodOutput(), workflow: JSON.stringify(workflow) }) });
+  const { url } = await serve(t, { languageModel: model });
+  const result = await (await post(url, preparedBody())).json();
+  assert.equal(model.doGenerateCalls[0].responseFormat.schema.properties.workflow.type, 'string');
+  assert.ok(model.doGenerateCalls[0].responseFormat.schema.required.includes('workflow'));
+  assert.deepEqual(result.execution.draftRequests[0].design, workflow.sites[0].design);
+  for (const command of ['{PRIVATE malformed', JSON.stringify({ regionReviews: [], sites: [structuredSite({ design: null })] })]) {
+    const other = await serve(t, { languageModel: new MockLanguageModelV4({ doGenerate: generated({ ...goodOutput(), workflow: command }) }) });
+    const response = await post(other.url, preparedBody());
+    assert.equal(response.status, 502); assert.doesNotMatch(await response.text(), /PRIVATE/);
+  }
+});
+
+test('structured site deferrals record a reason and never manufacture a design', async t => {
+  const site = structuredSite({ decision: 'defer', design: null, rationale: 'The surface boundary needs review.' });
+  const model = new MockLanguageModelV4({ doGenerate: generated({ ...goodOutput(), workflow: { regionReviews: [], sites: [site] } }) });
+  const { url } = await serve(t, { languageModel: model });
+  const result = await (await post(url, preparedBody())).json();
+  assert.deepEqual(result.execution.draftRequests, []);
+  assert.equal(result.execution.siteReviews[0].decision, 'defer');
+  assert.equal(result.execution.toolResults[0].name, 'reviewRestorationSite');
+  assert.equal(result.execution.toolResults.some(item => item.name === 'requestDraftComponents'), false);
+});
+
+test('an assessment-only response gets one bounded repair for its omitted site decisions', async t => {
+  let calls = 0;
+  const model = new MockLanguageModelV4({ doGenerate: options => {
+    calls++;
+    if (calls === 1) return generated(goodOutput());
+    assert.match(promptText(options), /no recorded site decisions/);
+    return generated({ ...goodOutput(), workflow: { regionReviews: [], sites: [structuredSite()] } });
+  } });
+  const { url } = await serve(t, { languageModel: model });
+  const result = await (await post(url, preparedBody())).json();
+  assert.equal(calls, 2); assert.equal(result.execution.providerSteps, 2);
+  assert.equal(result.execution.inputTokens, 20); assert.equal(result.execution.outputTokens, 10);
+  assert.equal(result.execution.draftRequests.length, 1);
+  assert.deepEqual(result.execution.draftRequests[0].design, structuredDesign());
+});
+
+test('omitted decisions remain explicit after one repair, without inventing defaults or looping', async t => {
+  const model = new MockLanguageModelV4({ doGenerate: generated(goodOutput()) });
+  const { url } = await serve(t, { languageModel: model });
+  const result = await (await post(url, preparedBody())).json();
+  assert.equal(model.doGenerateCalls.length, 2);
+  assert.deepEqual(result.execution.draftRequests, []); assert.deepEqual(result.execution.toolResults, []);
+  assert.ok(result.limitations.some(value => /No construction decision was recorded/.test(value)));
+});
+
+test('a bounded assessment repair preserves an accepted command and fixes invalid citations without bypassing validation', async t => {
+  const invalid = { ...goodOutput(), workflow: { regionReviews: [], sites: [structuredSite()] } };
+  invalid.findings[0].evidence = ['invented-view'];
+  let calls = 0;
+  const model = new MockLanguageModelV4({ doGenerate: options => {
+    if (calls++ === 0) return generated(invalid);
+    assert.match(promptText(options), /failed case validation.*unavailable evidence/s);
+    return generated(goodOutput());
+  } });
+  const { url } = await serve(t, { languageModel: model });
+  const result = await (await post(url, preparedBody())).json();
+  assert.equal(calls, 2); assert.equal(result.execution.draftRequests.length, 1);
+  assert.deepEqual(result.execution.draftRequests[0].design, structuredDesign());
+  assert.deepEqual(result.findings[0].evidence, goodOutput().findings[0].evidence);
+  assert.equal(result.execution.providerSteps, 2);
+});
+
+test('structured commands pass the existing chart and exact-design validation gates', async t => {
+  const output = { ...goodOutput(), workflow: { regionReviews: [], sites: [structuredSite()] } };
+  const blocked = preparedBody(); blocked.snapshot.teeth.find(tooth => tooth.fdi === 16).status = 'present';
+  const { url } = await serve(t, { languageModel: new MockLanguageModelV4({ doGenerate: generated(output) }) });
+  const result = await (await post(url, blocked)).json();
+  assert.deepEqual(result.execution.draftRequests, []);
+  assert.equal(result.execution.toolResults.at(-1).output.queued, false);
+  const incomplete = structuredClone(output); delete incomplete.workflow.sites[0].design.parameters.fixture.depth;
+  const other = await serve(t, { languageModel: new MockLanguageModelV4({ doGenerate: generated(incomplete) }) });
+  assert.equal((await post(other.url, preparedBody())).status, 502);
+});
+
+test('a structured design reuses an accepted tool decision with rephrased rationale but cannot override a deferral', async t => {
+  for (const previousDecision of ['design', 'defer']) {
+    let calls = 0;
+    const previous = structuredSite({ decision: previousDecision, rationale: 'Earlier recorded local site interpretation.', design: undefined });
+    delete previous.design;
+    const model = new MockLanguageModelV4({ doGenerate: () => calls++ === 0
+      ? { content: [{ type: 'tool-call', toolCallId: 'prior-site-review', toolName: 'reviewRestorationSite', input: JSON.stringify(previous) }],
+        finishReason: { unified: 'tool-calls', raw: 'tool-calls' }, usage, warnings: [] }
+      : generated({ ...goodOutput(), workflow: { regionReviews: [], sites: [structuredSite()] } }) });
+    const { url } = await serve(t, { languageModel: model });
+    const result = await (await post(url, preparedBody())).json();
+    assert.equal(result.execution.siteReviews[0].rationale, previous.rationale);
+    assert.equal(result.execution.draftRequests.length, previousDecision === 'design' ? 1 : 0);
+    if (previousDecision === 'design') assert.deepEqual(result.execution.draftRequests[0].design, structuredDesign());
+  }
+});
+
+test('AI SDK generation tool returns the complete model-authored design for exact browser execution', async t => {
+  const design = { anatomy: 'molar', anatomySource: 'procedural-template',
+    parameters: { fixture: { radius: 1.2, length: 4.3, depth: .2, taper: .15 },
+      abutment: { radius: 1, height: .7, emergenceRadius: 1.3, angleX: 0, angleY: 2 },
+      crown: { width: 5.1, depth: 4.2, height: 3.4, cuspHeight: .15, rotation: 4 } },
+    contour: { cervicalScale: .95, occlusalScale: 1.05 } };
+  let step = 0;
+  const model = new MockLanguageModelV4({ doGenerate: options => {
+    if (step++ === 0) {
+      assert.ok(options.tools.some(tool => tool.name === 'requestDraftComponents'));
+      assert.match(options.prompt[0].content, /component-parameters\.md/);
+      return { content: [{ type: 'tool-call', toolCallId: 'design-1', toolName: 'requestDraftComponents', input: JSON.stringify({ siteId: 'site-1', rationale: 'Illustrative design from the observed space.', design }) }],
+        finishReason: { unified: 'tool-calls', raw: 'tool-calls' }, usage, warnings: [] };
+    }
+    assert.match(JSON.stringify(options.prompt), /local-construct-measure/);
+    return generated(goodOutput());
+  } });
+  const payload = body();
+  payload.preparation = { sources: [], sites: [{ id: 'site-1', sourceId: 'scan-1', fdi: 16, status: 'proposed-missing', localized: true, confidence: .9,
+    supporting: ['Bounded local scan space.'], conflicting: [], questions: [], kind: 'bounded', slotCount: 1,
+    space: { unit: 'file units (u)', mesiodistal: 5.5, buccolingual: 4.5, crownHeight: 4.2, sampledVertical: 4.5, verticalMethod: 'Sampled ray envelope.' } }] };
+  const { url } = await serve(t, { languageModel: model });
+  const response = await post(url, payload);
+  assert.equal(response.status, 200);
+  const output = await response.json();
+  assert.equal(output.execution.providerSteps, 2);
+  assert.deepEqual(output.execution.draftRequests, [{ siteId: 'site-1', fdi: 16, anatomy: 'molar', rationale: 'Illustrative design from the observed space.', design }]);
+  const observed = output.execution.toolResults.find(result => result.name === 'requestDraftComponents');
+  assert.equal(observed.output.artifactStatus, 'pending-worker');
+  assert.equal(observed.output.optimization, false);
+  assert.equal(observed.output.budget.candidates, 1);
+});
 const hang = options => new Promise((_, reject) => options.abortSignal.addEventListener('abort', () => reject(options.abortSignal.reason), { once: true }));
 async function serve(t, config = {}) {
   const middleware = createCasePlanningMiddleware(config);
@@ -257,6 +422,7 @@ test('SDK structured output includes real skill and clinical prior, bounded anon
   assert.equal(model.doGenerateCalls.length, 1);
   const call = model.doGenerateCalls[0];
   assert.equal(call.responseFormat.type, 'json'); assert.ok(call.responseFormat.schema);
+  assert.ok(call.responseFormat.schema.required.includes('workflow'));
   assert.equal(call.maxOutputTokens, 8192);
   const system = call.prompt.filter(message => message.role === 'system').map(message => message.content).join('\n');
   const skill = await readFile(new URL('../skills/dental-restoration-design/SKILL.md', import.meta.url), 'utf8');
@@ -413,4 +579,215 @@ test('disconnect during upload frees the request slot without leaking a partial 
   req.destroy();
   await until(async () => (await post(url)).status === 200, 'upload disconnect released slot');
   assert.equal(model.doGenerateCalls.length, 1);
+});
+
+test('NDJSON streams actual tool starts and completions before the single validated result', async t => {
+  let finish;
+  const finalStep = new Promise(resolve => { finish = resolve; });
+  let step = 0;
+  const model = new MockLanguageModelV4({ doGenerate: options => {
+    if (step++ === 0) return {
+      content: [
+        { type: 'reasoning', text: 'PRIVATE hidden reasoning must not be emitted.' },
+        { type: 'tool-call', toolCallId: 'inventory-call', toolName: 'getModelInventory', input: '{}' },
+        { type: 'tool-call', toolCallId: 'guidance-call', toolName: 'getDentalDesignGuidance', input: JSON.stringify({ topic: 'component-parameters' }) },
+      ], finishReason: { unified: 'tool-calls', raw: 'tool-calls' }, usage, warnings: [],
+    };
+    assert.match(JSON.stringify(options.prompt), /GENERAL DESIGN KNOWLEDGE/);
+    return finalStep;
+  } });
+  t.after(() => finish(generated(goodOutput())));
+  const { url } = await serve(t, { languageModel: model, model: 'selected-model' });
+  const response = await post(url, body(), { Accept: 'application/json, application/x-ndjson; charset=utf-8' });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'application/x-ndjson');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const events = [];
+  const pending = readPlanningEvents(response.body, event => events.push(event));
+  await until(() => events.filter(event => event.type === 'tool' && event.activity.phase === 'complete').length === 2, 'live tool completions arrive before final provider answer');
+  assert.deepEqual(events[0], { type: 'started', revision: body().revision, model: 'selected-model' });
+  assert.equal(events.some(event => event.type === 'result'), false);
+  for (const [id, name] of [['inventory-call', 'getModelInventory'], ['guidance-call', 'getDentalDesignGuidance']]) {
+    const activity = events.filter(event => event.type === 'tool' && event.activity.id === id).map(event => event.activity);
+    assert.deepEqual(activity.map(item => item.phase), ['running', 'complete']);
+    assert.ok(activity.every(item => item.name === name));
+    assert.ok(Number.isFinite(activity[1].durationMs) && activity[1].durationMs >= 0);
+  }
+  const inventory = events.find(event => event.type === 'tool' && event.activity.id === 'inventory-call' && event.activity.phase === 'complete').activity;
+  assert.deepEqual(inventory.output.parts, { type: 'array', count: 1 });
+  const guidance = events.find(event => event.type === 'tool' && event.activity.id === 'guidance-call' && event.activity.phase === 'complete').activity;
+  assert.deepEqual(guidance.input, { topic: 'component-parameters' });
+  assert.equal(guidance.output.content.omitted, 'payload');
+  assert.doesNotMatch(JSON.stringify(events), /PRIVATE|987654|# Component|implant-assembly\/v1/);
+  finish(generated(goodOutput()));
+  const result = await pending;
+  assert.equal(events.at(-1).type, 'result');
+  assert.equal(events.filter(event => event.type === 'result').length, 1);
+  assert.equal(result.revision, body().revision);
+  assert.equal(result.model, model.modelId);
+  assert.equal(result.execution.requestedModel, 'selected-model');
+  assert.equal(result.execution.providerSteps, 2);
+  assert.deepEqual(result.execution.toolResults.map(item => item.name).sort(), ['getDentalDesignGuidance', 'getModelInventory']);
+  assert.equal(result.execution.inputTokens, 20);
+  assert.equal(result.mappings[1].fdi, null, 'the final plan uses the legacy validator');
+});
+
+test('streaming is opt-in and pre-stream validation errors keep their HTTP JSON status', async t => {
+  const model = new MockLanguageModelV4({ doGenerate: generated(goodOutput()) });
+  const { url } = await serve(t, { languageModel: model });
+  for (const accept of ['application/json', 'application/x-ndjson-invalid']) {
+    const response = await post(url, body(), { Accept: accept });
+    assert.equal(response.headers.get('content-type'), 'application/json');
+    assert.equal((await response.json()).revision, body().revision);
+  }
+  for (const [payload, headers, status] of [
+    [body(), { Origin: 'https://other.example' }, 403],
+    ['{"revision":', {}, 400],
+    [{ ...body(), privateData: 'PRIVATE' }, {}, 400],
+    [{ ...body(), views: [{ ...body().views[0], base64: Buffer.from('not JPEG').toString('base64') }] }, {}, 400],
+    [body(), { 'Content-Type': 'text/plain' }, 415],
+  ]) {
+    const response = await post(url, payload, { Accept: 'application/x-ndjson', ...headers });
+    assert.equal(response.status, status);
+    assert.equal(response.headers.get('content-type'), 'application/json');
+    const text = await response.text();
+    assert.match(text, /"error"/); assert.doesNotMatch(text, /"started"|PRIVATE/);
+  }
+  const unconfigured = await serve(t);
+  const unavailable = await post(unconfigured.url, body(), { Accept: 'application/x-ndjson' });
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.headers.get('content-type'), 'application/json');
+  assert.equal(model.doGenerateCalls.length, 2);
+});
+
+test('streamed provider and unusable-output errors are masked terminal events without results', async t => {
+  const invalid = goodOutput(); invalid.findings[0].evidence = ['PRIVATE-invented-evidence'];
+  for (const behavior of [
+    () => { throw new APICallError({ message: 'PRIVATE sk-SECRET provider message', url: 'https://api.anthropic.com/v1/messages', statusCode: 401, requestBodyValues: { private: 'PRIVATE' }, responseBody: 'PRIVATE response' }); },
+    () => generated(invalid),
+    () => ({ content: [{ type: 'text', text: 'PRIVATE unstructured' }], finishReason: { unified: 'stop', raw: 'stop' }, usage, warnings: [] }),
+  ]) {
+    const model = new MockLanguageModelV4({ doGenerate: behavior });
+    const { url } = await serve(t, { languageModel: model });
+    const response = await post(url, body(), { Accept: 'application/x-ndjson' });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    const events = text.trim().split('\n').map(line => JSON.parse(line));
+    assert.deepEqual(events.map(event => event.type), ['started', 'error']);
+    assert.ok(events[1].error.length > 0);
+    assert.doesNotMatch(text, /PRIVATE|SECRET|invented-evidence|unstructured|responseBody|reasoning/);
+    await assert.rejects(readPlanningEvents(new Response(text).body, () => {}), { message: events[1].error });
+  }
+});
+
+test('actual tool exceptions produce a timed masked error activity and preserve valid final output', async t => {
+  let step = 0;
+  const design = { anatomy: 'molar', anatomySource: 'procedural-template',
+    parameters: { fixture: { radius: 1.2, length: 4.3, depth: .2, taper: .15 },
+      abutment: { radius: 1, height: .7, emergenceRadius: 1.3, angleX: 0, angleY: 2 },
+      crown: { width: 5.1, depth: 4.2, height: 3.4, cuspHeight: .15, rotation: 4 } },
+    contour: { cervicalScale: .95, occlusalScale: 1.05 } };
+  const model = new MockLanguageModelV4({ doGenerate: () => step++ === 0 ? {
+    content: [{ type: 'tool-call', toolCallId: 'rejected-design', toolName: 'requestDraftComponents', input: JSON.stringify({ siteId: 'site-1', design, rationale: 'Place a 4 mm implant.' }) }],
+    finishReason: { unified: 'tool-calls', raw: 'tool-calls' }, usage, warnings: [],
+  } : generated(goodOutput()) });
+  const { url } = await serve(t, { languageModel: model });
+  const response = await post(url, body(), { Accept: 'application/x-ndjson' });
+  const events = [];
+  const result = await readPlanningEvents(response.body, event => events.push(event));
+  const activities = events.filter(event => event.type === 'tool').map(event => event.activity);
+  assert.deepEqual(activities.map(activity => activity.phase), ['running', 'error']);
+  assert.ok(activities.every(activity => activity.id === 'rejected-design'));
+  assert.ok(activities[1].durationMs >= 0);
+  assert.deepEqual(activities[1].output, { error: 'The planning tool could not complete.' });
+  assert.deepEqual(result.execution.draftRequests, []);
+  assert.equal(events.at(-1).type, 'result');
+});
+
+test('new catalog tools stream automatically and final execution retains validated region and site reviews', async t => {
+  const region = { sourceId: 'scan-1', candidateId: 1, classification: 'tooth', decision: 'use', fdi: 11, rationale: 'Incisor hypothesis from the supplied region and arch view.', evidence: ['scan-1:C1', 'view-2'] };
+  const site = { siteId: 'site-1', decision: 'defer', rationale: 'The proposed site needs reviewed space and anatomical evidence.', evidence: ['view-2'], missingEvidence: ['Reviewed site measurements.'] };
+  const calls = [
+    ['inspectToothRegion', { sourceId: 'scan-1', candidateId: 1 }],
+    ['reviewToothRegions', { reviews: [region] }],
+    ['reviewRestorationSite', site],
+    ['inspectPlacementRules', { siteId: 'site-1' }],
+  ];
+  let step = 0;
+  const model = new MockLanguageModelV4({ doGenerate: options => {
+    if (step++ === 0) {
+      for (const [name] of calls) assert.ok(options.tools.some(tool => tool.name === name));
+      assert.match(options.prompt[0].content, /reviewToothRegions/);
+      assert.match(options.prompt[0].content, /inspectPlacementRules/);
+      return { content: calls.map(([toolName, input], index) => ({ type: 'tool-call', toolCallId: `review-${index}`, toolName, input: JSON.stringify(input) })), finishReason: { unified: 'tool-calls', raw: 'tool-calls' }, usage, warnings: [] };
+    }
+    return generated(goodOutput());
+  } });
+  const payload = body();
+  payload.preparation = { sources: [], sites: [{ id: 'site-1', sourceId: 'scan-1', fdi: 16, status: 'identity-unresolved', confidence: .4, localized: false, supporting: [], conflicting: [], questions: [] }] };
+  const { url } = await serve(t, { languageModel: model });
+  const events = [];
+  const result = await readPlanningEvents((await post(url, payload, { Accept: 'application/x-ndjson' })).body, event => events.push(event));
+  for (const [name] of calls) assert.deepEqual(events.filter(event => event.type === 'tool' && event.activity.name === name).map(event => event.activity.phase), ['running', 'complete']);
+  assert.deepEqual(result.execution.regionReviews, [region]);
+  assert.deepEqual(result.execution.siteReviews, [site]);
+  assert.deepEqual(result.execution.draftRequests, []);
+});
+
+test('streamed results fold actual region exclusions into mappings before accepting the final plan', async t => {
+  const review = { sourceId: 'scan-1', candidateId: 7, classification: 'mixed', decision: 'needs-boundary-review', fdi: null,
+    rationale: 'The proposed region contains unresolved mixed surfaces.', evidence: ['scan-1:C7', 'view-2'] };
+  const output = goodOutput();
+  output.mappings.push({ sourceId: 'scan-1', candidateId: 7, fdi: 12, needsReview: false, reason: 'Provider identity contradicts the recorded boundary review.' });
+  let step = 0;
+  const model = new MockLanguageModelV4({ doGenerate: () => step++ === 0 ? {
+    content: [{ type: 'tool-call', toolCallId: 'boundary-review', toolName: 'reviewToothRegions', input: JSON.stringify({ reviews: [review] }) }],
+    finishReason: { unified: 'tool-calls', raw: 'tool-calls' }, usage, warnings: [],
+  } : generated(output) });
+  const { url } = await serve(t, { languageModel: model });
+  const events = [];
+  const result = await readPlanningEvents((await post(url, body(), { Accept: 'application/x-ndjson' })).body, event => events.push(event));
+  const mapping = result.mappings.find(item => item.candidateId === 7);
+  assert.equal(mapping.fdi, null);
+  assert.equal(mapping.needsReview, true);
+  assert.deepEqual(result.execution.regionReviews, [review]);
+  assert.equal(events.filter(event => event.type === 'result').length, 1);
+});
+
+test('streamed timeout emits one masked error, aborts cancellation-ignoring providers and releases the slot', async t => {
+  let behavior = () => new Promise(() => {});
+  const model = new MockLanguageModelV4({ doGenerate: options => behavior(options) });
+  const { url } = await serve(t, { languageModel: model, requestTimeoutMs: 60 });
+  const response = await post(url, body(), { Accept: 'application/x-ndjson' });
+  const events = [];
+  await assert.rejects(readPlanningEvents(response.body, event => events.push(event)), /timed out/);
+  assert.deepEqual(events.map(event => event.type), ['started', 'error']);
+  assert.equal(model.doGenerateCalls[0].abortSignal.aborted, true);
+  behavior = () => generated(goodOutput());
+  assert.equal((await post(url)).status, 200);
+});
+
+test('cancelling a streamed reader aborts the provider and releases the request slot', async t => {
+  let behavior = hang, aborted = false;
+  const model = new MockLanguageModelV4({ doGenerate: options => {
+    options.abortSignal.addEventListener('abort', () => { aborted = true; }, { once: true });
+    return behavior(options);
+  } });
+  const { url } = await serve(t, { languageModel: model });
+  const response = await post(url, body(), { Accept: 'application/x-ndjson' });
+  assert.equal(response.status, 200);
+  const controller = new AbortController(), events = [];
+  const pending = readPlanningEvents(response.body, event => events.push(event), controller.signal);
+  await until(() => events.length === 1 && model.doGenerateCalls.length === 1, 'stream started before cancelling');
+  const busy = await post(url, body(), { Accept: 'application/x-ndjson' });
+  assert.equal(busy.status, 429);
+  assert.equal(busy.headers.get('content-type'), 'application/json');
+  controller.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+  await until(() => aborted, 'stream disconnect aborted provider');
+  behavior = () => generated(goodOutput());
+  let next;
+  await until(async () => { next = await post(url); return next.status !== 429; }, 'stream disconnect released slot');
+  assert.equal(next.status, 200);
+  assert.deepEqual(events.map(event => event.type), ['started']);
 });

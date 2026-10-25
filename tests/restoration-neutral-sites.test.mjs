@@ -109,8 +109,9 @@ async function harness(t) {
 async function replyFit(worker) {
   assert.equal(worker.request.type, 'prepare-fit');
   assert.ok(worker.url.endsWith('/restoration-fit.worker.ts'));
-  assert.equal(worker.request.site.id, worker.request.spec.draftIdentity.siteId, 'Each fit uses its own geometric site.');
-  const result = await fitRestoration({ spec: worker.request.spec, surfaces: [] });
+  if (worker.request.spec.draftIdentity) assert.equal(worker.request.site.id, worker.request.spec.draftIdentity.siteId, 'Each fit uses its own geometric site.');
+  else assert.equal(worker.request.site.fdi, worker.request.spec.fdi, 'A named fit retains the authorized site identity.');
+  const result = await fitRestoration({ spec: worker.request.spec, surfaces: [], options: worker.request.options });
   worker.reply({ type: 'result', result });
   return result;
 }
@@ -297,5 +298,130 @@ test('neutral automatic copies require the current revision even without anatomi
     assert.equal(await settlesImmediately(work), true); h.render();
     assert.equal(h.api.assemblies.length, 0); assert.equal(h.api.busy, false);
     assert.deepEqual(h.teeth, chart);
+  });
+});
+
+const aiDesign = (width = 3.1) => ({ anatomy: 'molar', anatomySource: 'procedural-template',
+  parameters: { fixture: { radius: .91, length: 4.2, depth: .37, taper: .19 },
+    abutment: { radius: .79, height: .72, emergenceRadius: 1.1, angleX: 6, angleY: -4 },
+    crown: { width, depth: 2.2, height: 2.3, cuspHeight: .21, rotation: 17 } },
+  contour: { cervicalScale: .83, occlusalScale: 1.17 } });
+const aiRequests = sites => sites.map((site, i) => ({ siteId: site.id, fdi: site.fdi, rationale: `Independent design at ${site.id}.`, design: aiDesign(3.1 - i * .4) }));
+
+test('AI designs sharing an FDI execute independently by exact local site ID and preserve every requested value', async t => {
+  const h = await harness(t), sites = neutralSites(), requests = aiRequests(sites), before = structuredClone({ sites, requests, teeth: h.teeth });
+  const work = h.api.create([36], h.teeth, [], [], sites, requests);
+  for (const request of requests) {
+    const pending = h.takeWorker();
+    assert.equal(pending.request.site.id, request.siteId);
+    assert.equal(pending.request.spec.draftIdentity.siteId, request.siteId);
+    assert.deepEqual(pending.request.generationDesign, request.design);
+    assert.deepEqual(pending.request.spec.parameters, request.design.parameters);
+    assert.deepEqual(pending.request.spec.contour, request.design.contour);
+    assert.equal(pending.request.options.maxCandidates, 1);
+    assert.equal(pending.request.options.verifyBaselineIntersections, true);
+    assert.match(pending.request.spec.source, /AI-directed design/);
+    assert.ok(pending.request.spec.source.includes('skills/dental-restoration-design/SKILL.md'));
+    assert.ok(pending.request.spec.source.includes(request.rationale));
+    await replyFit(pending); await microtasks();
+  }
+  const result = await work; h.render();
+  assert.equal(h.queuedWorkerCount, 0); assert.deepEqual(result.failedSites, []);
+  for (const request of requests) {
+    const assembly = assemblyAt(h, request.siteId);
+    assert.deepEqual(assembly.spec.parameters, request.design.parameters);
+    assert.deepEqual(assembly.spec.contour, request.design.contour);
+    assert.deepEqual(assembly.spec.frame, sites.find(site => site.id === request.siteId).frame);
+    assert.equal(assembly.candidateHistory.length, 1);
+    assert.equal(assembly.fit.quality.stopReason, 'measurement-only');
+  }
+  assert.notDeepEqual(assemblyAt(h, 'ridge-a').spec.parameters, assemblyAt(h, 'ridge-b').spec.parameters);
+  assert.deepEqual({ sites, requests, teeth: h.teeth }, before);
+});
+
+test('AI mode never authorizes a different neutral site from a shared FDI or falls back to local defaults', async t => {
+  for (const [name, requestsFor] of [
+    ['no authorized designs', () => []],
+    ['transport alias', sites => [{ ...aiRequests(sites)[0], siteId: 'site-1' }]],
+    ['wrong FDI', sites => [{ ...aiRequests(sites)[0], fdi: 35 }]],
+    ['duplicate designs', sites => [aiRequests(sites)[0], aiRequests(sites)[0]]],
+    ['incomplete design', sites => [{ ...aiRequests(sites)[0], design: { ...aiDesign(), parameters: { crown: aiDesign().parameters.crown } } }]],
+  ]) await t.test(name, async t => {
+    const h = await harness(t), sites = neutralSites();
+    const result = await h.api.create([36], h.teeth, [], [], sites, requestsFor(sites)); h.render();
+    assert.equal(h.queuedWorkerCount, 0, 'No localization worker or implicit default fit is authorized.');
+    assert.equal(h.api.assemblies.length, 0);
+    assert.deepEqual(result.failedSites.map(site => site.siteId), sites.map(site => site.id));
+    assert.ok(h.api.siteReadiness.every(site => site.status === 'needs-input'));
+  });
+  await t.test('one authorized site cannot supply its design to the other', async t => {
+    const h = await harness(t), sites = neutralSites(), requests = aiRequests(sites).slice(0, 1);
+    const work = h.api.create([36], h.teeth, [], [], sites, requests);
+    await replyFit(h.takeWorker()); await microtasks();
+    const result = await work; h.render();
+    assert.equal(h.queuedWorkerCount, 0);
+    assert.deepEqual(result.assemblies.map(siteId), ['ridge-a']);
+    assert.deepEqual(result.failedSites.map(site => site.siteId), ['ridge-b']);
+    assert.match(h.api.siteReadiness.find(site => site.siteId === 'ridge-b').detail, /No authorized AI design/);
+  });
+  await t.test('no exact local site cannot start anatomical localization', async t => {
+    const h = await harness(t);
+    const result = await h.api.create([36], h.teeth, [], [], [], aiRequests(neutralSites())); h.render();
+    assert.equal(h.queuedWorkerCount, 0); assert.deepEqual(result.failed, [36]); assert.equal(h.api.assemblies.length, 0);
+  });
+});
+
+test('AI executor rejects worker changes to the exact design and retains independent site failures', async t => {
+  for (const [name, change] of [
+    ['parameters', result => { result.spec.parameters.crown.width *= .9; }],
+    ['contour', result => { result.spec.contour.cervicalScale = 1; }],
+    ['anatomy', result => { result.spec.anatomy = 'premolar'; }],
+    ['frame', result => { result.spec.frame.origin[0] += 1; }],
+    ['site identity', result => { result.spec.draftIdentity.siteId = 'ridge-b'; }],
+    ['anatomical signs', result => { result.spec.anatomicalSigns.mesial *= -1; }],
+    ['anatomy source', result => { result.spec.crownShape.source.kind = 'patient-donor'; }],
+    ['template cut', result => { result.spec.crownShape.occlusal[0] *= .8; }],
+    ['candidate history', result => { result.history.push(structuredClone(result.history[0])); }],
+  ]) await t.test(name, async t => {
+    const h = await harness(t), sites = neutralSites().slice(0, 1), requests = aiRequests(sites);
+    const work = h.api.create([36], h.teeth, [], [], sites, requests), pending = h.takeWorker();
+    const result = await fitRestoration({ spec: pending.request.spec, surfaces: [], options: { maxCandidates: 1 } });
+    change(result); pending.reply({ type: 'result', result });
+    const outcome = await work; h.render();
+    assert.equal(h.api.assemblies.length, 0); assert.deepEqual(outcome.failedSites.map(site => site.siteId), ['ridge-a']);
+    assert.match(h.api.error, /authorized design/);
+  });
+});
+
+test('AI generation remains assessment-bound for named sites without anatomical proposals', async t => {
+  for (const stage of ['pending', 'completed', 'old callback']) await t.test(stage, async t => {
+    const h = await harness(t), sites = neutralSites().slice(0, 1).map(({ draftIdentity: _draft, ...site }) => site), requests = aiRequests(sites);
+    const create = h.api.create;
+    if (stage === 'old callback') h.render({ hypothesisRevision: 'assessment-b' });
+    const work = create([36], h.teeth, [], [], sites, requests);
+    if (stage === 'old callback') {
+      assert.equal(h.queuedWorkerCount, 0); await work; return;
+    }
+    const pending = h.takeWorker();
+    if (stage === 'completed') { await replyFit(pending); await work; h.render(); assert.equal(h.api.assemblies.length, 1); }
+    h.render({ hypothesisRevision: 'assessment-b' });
+    if (stage === 'pending') {
+      assert.equal(pending.terminated, true); assert.equal(await settlesImmediately(work), true);
+      await replyFit(pending); await microtasks(); h.render(); assert.equal(h.api.assemblies.length, 0);
+    } else assert.ok(h.api.assemblies.every(isStale));
+    assert.equal(h.api.busy, false); assert.equal(h.queuedWorkerCount, 0);
+    assert.ok(h.api.siteReadiness.every(site => site.status === 'needs-input'));
+  });
+});
+
+test('AI exact generation cancels on source, pose, labels and assessment changes and discards late responses', async t => {
+  const changes = [...evidenceChanges, ['source pose', h => ({ parts: h.parts.map(part => ({ ...part, offset: [1, 0, 0] })) })]];
+  for (const [name, change] of changes) await t.test(name, async t => {
+    const h = await harness(t), sites = neutralSites(), work = h.api.create([36], h.teeth, [], [], sites, aiRequests(sites)), pending = h.takeWorker();
+    h.render(change(h));
+    assert.equal(pending.terminated, true); assert.equal(await settlesImmediately(work), true);
+    await replyFit(pending); await microtasks(); h.render();
+    assert.equal(h.api.assemblies.length, 0); assert.equal(h.queuedWorkerCount, 0); assert.equal(h.api.busy, false);
+    assert.ok(h.api.siteReadiness.every(site => site.status === 'needs-input'));
   });
 });

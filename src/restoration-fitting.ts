@@ -3,9 +3,9 @@ import { createNearestSurfaceQuery } from './collision.ts';
 import type { NearestSurfaceQuery } from './collision.ts';
 import { createFitIntersectionQuery } from './restoration-fit-intersections.ts';
 import { MAX_VERIFIED_TARGET_FACES, verifyFitIntersections } from './restoration-fit-verification.ts';
-import { generateRestoration, restorationCrownShape, restorationReferencePlanes } from './restoration-geometry.ts';
+import { crownTissueRegions, generateRestoration, restorationCrownShape, restorationReferencePlanes } from './restoration-geometry.ts';
 import { acceptsFitCandidate } from './restoration-fit-selection.ts';
-import { evaluateRestorationQuality } from './restoration-quality.ts';
+import { DEFAULT_QUALITY_TOLERANCES, evaluateRestorationQuality, measureCrownExtents, RESTORATION_QUALITY_CONTEXT_VERSION } from './restoration-quality.ts';
 import { planOcclusalAdaptation } from './restoration-adaptation.ts';
 import type { RestorationFitHistoryEntry, RestorationFitInput, RestorationFitMeasurement, RestorationFitOptions,
   RestorationFitResult, RestorationFitSurface, RestorationMesh, RestorationParameters, RestorationSpec } from './restoration-types';
@@ -28,7 +28,11 @@ const boundedInteger = (value: number | undefined, fallback: number, min: number
   return result;
 };
 function optionsOf(options: RestorationFitOptions = {}) {
+  if (options.tissueSource !== undefined && !['crown', 'crown-and-abutment'].includes(options.tissueSource)) throw new Error('Unknown tissue audit source.');
+  if (options.verifyBaselineIntersections !== undefined && typeof options.verifyBaselineIntersections !== 'boolean') throw new Error('Full baseline verification must be boolean.');
   return {
+    tissueSource: options.tissueSource ?? 'crown-and-abutment',
+    verifyBaselineIntersections: options.verifyBaselineIntersections ?? false,
     maxCandidates: boundedInteger(options.maxCandidates, 32, 1, 80, 'Candidate budget'),
     maxDurationMs: boundedInteger(options.maxDurationMs, 12_000, 100, 60_000, 'Time budget'),
     samplesPerSurface: boundedInteger(options.samplesPerSurface, 320, 16, 2048, 'Sample budget'),
@@ -95,6 +99,35 @@ function morphologyPenalty(spec: RestorationSpec, initial: RestorationSpec) {
     ((p.abutment.angleX - b.abutment.angleX) / 12) ** 2 + ((p.abutment.angleY - b.abutment.angleY) / 12) ** 2);
 }
 
+/** Soft objective terms from explicitly measured source envelopes. A clear
+ * triangle audit alone gives no incentive to repair an oversized crown. These
+ * terms guide bounded proposals; independent quality/evidence gates still
+ * decide acceptance, and fixture inference is never used as scale evidence. */
+function measuredEnvelopePenalty(spec: RestorationSpec, components: RestorationMesh[]) {
+  const context = spec.qualityContext;
+  if (context?.version !== RESTORATION_QUALITY_CONTEXT_VERSION || context.units !== 'file units (u)') return 0;
+  const extents = measureCrownExtents(spec, components);
+  if (!extents) return 0;
+  const excess = (value: number, reference: number, high: number) => Math.max(0, value / reference - high) ** 2;
+  const measured = (value: typeof context.gapWidth) => value?.provenance === 'measured' && Number.isFinite(value.value) && value.value > 0;
+  let penalty = 0;
+  if (measured(context.gapWidth)) penalty += 4 * excess(extents.mesiodistal, context.gapWidth!.value, DEFAULT_QUALITY_TOLERANCES.gapOccupancy[1]);
+  if (context.bitePoseVerified === true && measured(context.availableHeight)) {
+    penalty += 4 * excess(extents.top, context.availableHeight!.value, DEFAULT_QUALITY_TOLERANCES.heightOccupancyMax);
+  }
+  for (const [key, emitted, high] of [
+    ['mesiodistal', extents.mesiodistal, DEFAULT_QUALITY_TOLERANCES.widthToNeighbor[1]],
+    ['buccolingual', extents.buccolingual, DEFAULT_QUALITY_TOLERANCES.depthToNeighbor[1]],
+    ['height', extents.top, DEFAULT_QUALITY_TOLERANCES.heightToNeighbor[1]],
+  ] as const) {
+    const neighbors = context.neighbors?.filter(neighbor => typeof neighbor[key] === 'number' && Number.isFinite(neighbor[key]) && neighbor[key]! > 0) ?? [];
+    if (!neighbors.length || neighbors.some(neighbor => neighbor.provenance !== 'measured')) continue;
+    const average = neighbors.reduce((sum, neighbor) => sum + neighbor[key]!, 0) / neighbors.length;
+    penalty += .25 * excess(emitted, average, high);
+  }
+  return penalty;
+}
+
 /**
  * Deterministic local concept fitting. Fixture placement is held fixed. Targets
  * are named subsets in the parent's original file coordinates; callers resolve
@@ -133,8 +166,9 @@ export async function fitRestoration(input: RestorationFitInput, control: Restor
   });
   const scale = Math.min(initial.parameters.crown.width, initial.parameters.crown.depth, initial.parameters.crown.height);
   cancelled();
-  const prepared: { surface: RestorationFitSurface; nearest: NearestSurfaceQuery; intersection: ReturnType<typeof createFitIntersectionQuery>; targetGap: number; weight: number }[] = [];
-  async function prepareNearest(positions: Float32Array): Promise<NearestSurfaceQuery> {
+  type TargetDistanceQuery = Pick<NearestSurfaceQuery, 'nearestPoint' | 'rayDistance'>;
+  const prepared: { surface: RestorationFitSurface; nearest: TargetDistanceQuery; intersection: ReturnType<typeof createFitIntersectionQuery>; targetGap: number; weight: number }[] = [];
+  async function prepareNearest(positions: Float32Array): Promise<TargetDistanceQuery> {
     // Build exact queries over bounded face blocks, yielding between them. A
     // single million-face sort otherwise prevents queued worker cancellation
     // from running during target preparation. Querying every block preserves
@@ -180,6 +214,7 @@ export async function fitRestoration(input: RestorationFitInput, control: Restor
     let objectiveScore = 0;
     const crown = components.find(c => c.component === 'crown');
     if (!crown) throw new Error('Generated crown is missing.');
+    const body = { ...crown, positions: crownTissueRegions(spec, crown).body };
     const tissueComponents = components.filter(c => c.component !== 'fixture');
     const tissuePositions = new Float32Array(tissueComponents.reduce((sum, c) => sum + c.positions.length, 0));
     let offset = 0;
@@ -190,7 +225,8 @@ export async function fitRestoration(input: RestorationFitInput, control: Restor
       // during the baseline. A partial measurement is never put in history.
       await yieldWork();
       check();
-      const samples = sampleRestoration(components, spec, target.surface, options.samplesPerSurface, check);
+      const crownOnly = target.surface.role === 'tissue' && options.tissueSource === 'crown';
+      const samples = sampleRestoration(crownOnly ? [body] : components, spec, target.surface, options.samplesPerSurface, check);
       const distances: number[] = [];
       const rayGaps: number[] = [];
       for (const [index, sample] of samples.points.entries()) {
@@ -212,14 +248,15 @@ export async function fitRestoration(input: RestorationFitInput, control: Restor
       const patch = distances.slice(0, Math.max(1, Math.ceil(distances.length * 0.08)));
       const patchError = patch.reduce((sum, distance) => sum + (distance - target.targetGap) ** 2, 0) / patch.length;
       const sampledRmsGapError = target.surface.role === 'adjacent' ? Math.sqrt(patchError) : clearanceRms;
-      const source = ['tissue', 'source-arch'].includes(target.surface.role) ? tissuePositions : crown.positions;
+      const source = crownOnly ? body.positions : ['tissue', 'source-arch'].includes(target.surface.role) ? tissuePositions : crown.positions;
       let intersections = target.intersection.test(source);
       const previousTarget = previous?.surfaces.find(surface => surface.id === target.surface.id);
       // A sampled zero cannot erase an observed crossing or replace complete
       // evidence. Screen every supplied target face before accepting its removal.
-      if (!intersections.intersectionComplete && intersections.transverseCrossingTriangles === 0 && previousTarget
-        && (previousTarget.intersectionComplete || (previousTarget.transverseCrossingTriangles ?? previousTarget.intersectingTriangles) > 0
-          || (intersections.intersectingTriangles === 0 && previousTarget.intersectingTriangles > 0))) {
+      if (!intersections.intersectionComplete && ((options.verifyBaselineIntersections && !previous)
+        || (intersections.transverseCrossingTriangles === 0 && previousTarget
+          && (previousTarget.intersectionComplete || (previousTarget.transverseCrossingTriangles ?? previousTarget.intersectingTriangles) > 0
+            || (intersections.intersectingTriangles === 0 && previousTarget.intersectingTriangles > 0))))) {
         intersections = await verifyFitIntersections(source, target.surface.positions, { check, yieldControl: yieldWork }) ?? intersections;
         check();
       }
@@ -232,8 +269,12 @@ export async function fitRestoration(input: RestorationFitInput, control: Restor
       const coverage = rayGaps.length / distances.length;
       if (!baselineRayCoverage.has(target.surface.id)) baselineRayCoverage.set(target.surface.id, coverage);
       const lostCoverage = Math.max(0, baselineRayCoverage.get(target.surface.id)! - coverage);
-      objectiveScore += target.weight * ((error + occlusalError) / (scale * scale) + lostCoverage * 4 + (intersections.intersectingTriangles ? 4 + Math.min(4, intersections.intersectingTriangles / 32) : 0) + (intersections.intersectionComplete ? 0 : 0.5));
+      // Do not saturate at 128 faces: large observed crossing counts must still
+      // provide a direction for relief. Counts are not penetration or volume.
+      objectiveScore += target.weight * ((error + occlusalError) / (scale * scale) + lostCoverage * 4 + (intersections.intersectingTriangles ? 4 + Math.log2(1 + intersections.intersectingTriangles) : 0) + (intersections.intersectionComplete ? 0 : 0.5));
       measurements.push({ id: target.surface.id, role: target.surface.role, ...(target.surface.side ? { side: target.surface.side } : {}),
+        ...(crownOnly ? { sourceRegion: 'crown-body' as const } : {}),
+        ...(options.tissueSource === 'crown' ? { sourceComponents: source === tissuePositions ? ['crown', 'abutment'] as ('crown' | 'abutment')[] : ['crown'] as 'crown'[] } : {}),
         targetGap: target.targetGap, targetProvenance: target.surface.targetProvenance ?? (target.surface.targetGap === undefined ? 'Scale-relative prototype hypothesis; no clinical contact prescription.' : 'Caller-supplied file-unit target; clinical provenance unspecified.'), weight: target.weight, targetTriangles: target.surface.positions.length / 9, samples: distances.length,
         sampledMinDistance, sampledRmsGapError, nearSamples: distances.filter(distance => distance <= target.targetGap).length,
         sampledMedianDistance: distances[Math.floor((distances.length - 1) * 0.5)],
@@ -243,6 +284,7 @@ export async function fitRestoration(input: RestorationFitInput, control: Restor
           sampledOcclusalGap: rayGaps[0] ?? null, sampledOcclusalGapError: rayGaps.length ? Math.sqrt(occlusalError) : null } : {}),
         sampledRegionTriangles: samples.regionTriangles, sampledRegionArea: samples.regionArea, ...intersections });
     }
+    objectiveScore += measuredEnvelopePenalty(spec, components);
     const penalty = morphologyPenalty(spec, initial);
     const score = objectiveScore + penalty;
     if (!Number.isFinite(score)) throw new Error('Fitting objective overflowed at these coordinates/targets.');
@@ -316,6 +358,18 @@ export async function fitRestoration(input: RestorationFitInput, control: Restor
       // The independent evaluator proposes specific repairs. It neither reads
       // the optimizer's score nor accepts its own suggestions: every proposal
       // is regenerated, measured, and checked against the accepted candidate.
+      const dimensionalRepairs = bestQuality.revisions.filter(revision => ['crown.width', 'crown.depth', 'crown.height'].includes(revision.parameter));
+      if (dimensionalRepairs.length > 1) {
+        // A one-axis scale repair may temporarily distort otherwise reasonable
+        // anatomy. Try the coordinated source-derived revision as one bounded
+        // candidate before individual edits; it receives the same full audit.
+        const parameters = copyParameters(bestSpec.parameters);
+        for (const revision of dimensionalRepairs) {
+          const dimension = dimensions[keys.indexOf(revision.parameter)];
+          dimension.write(parameters, Math.max(dimension.low, Math.min(dimension.high, revision.proposed)));
+        }
+        await trial(parameters, 'Coordinated crown dimension repair from independent source-envelope and proportion checks.');
+      }
       for (const revision of bestQuality.revisions) {
         const dimension = dimensions[keys.indexOf(revision.parameter)];
         if (!dimension) continue; // Fixture dimensions/placement are held fixed.
@@ -366,7 +420,7 @@ export async function fitRestoration(input: RestorationFitInput, control: Restor
       'Antagonist fitting also approaches the closest 8% of forward occlusal-axis ray hits; misses are unknown. Accepted candidates cannot reduce observed ray-hit coverage or introduce intersections on a previously nonintersecting target. These static sampled gaps do not establish clinical occlusion.',
       'Adjacent RMS/score use the closest 8% of samples in the stated lateral region (sample and near counts cover the entire sampled region); antagonist/tissue objectives penalize sampled gaps below their illustrative target. Default gaps are scale-relative prototype parameters, never clinical thresholds.',
       'Unclassified source-arch targets audit the basal crown and generic abutment without attributing them to a tooth or tissue; no sampled proximity identifies their anatomy.',
-      'Score sums weighted squared normalized gap errors, triangle touch/crossing penalties and a parameter-change penalty. Open targets have no reliable solid interior; wholly contained relationships can be missed.',
+      'Score sums weighted squared normalized gap errors, logarithmic observed triangle touch/crossing penalties, measured source-envelope overfill terms and a parameter-change penalty. Measured gap/headroom ceilings outweigh neighbour-relative size preferences; unverified headroom and hypothesized dimensions do not supply scale penalties. Open targets have no reliable solid interior; wholly contained relationships can be missed.',
       'Intersections initially test the complete crown (crown plus generic abutment for tissue) against a deterministic target-face subset, with 200000 triangle pair tests per target. A candidate removing observed crossings or replacing complete evidence gets a follow-up screening every supplied target triangle. Disjoint boxes are excluded; at most 20000 remaining faces receive the same bounded pair audit. The reported tested-target count includes broadphase screening for this complete follow-up. Oversized regions, degenerate faces and capped pair tests remain incomplete. Touching counts; incomplete zero crossings are not clearance.',
       'Transverse crossing requires strict straddling of both triangle planes beyond the reported numerical tolerance. Other hits are touching or ambiguous; these face categories can overlap and do not certify intended contact or an inside/outside relationship.',
       'Fitting changes only bounded crown dimensions/relief/rotation and abutment height/angles; fixture placement stays fixed. Minimum dimensions retain 72% of crown height and 82% of width/depth. No self-intersection, intaglio, material thickness or jaw-motion test is performed.',

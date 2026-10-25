@@ -6,10 +6,12 @@ import { registerHooks } from 'node:module';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { transformWithOxc } from 'vite';
+import { applyRestorationEdit } from '../src/restoration-edit.ts';
+import { generateRestoration } from '../src/restoration-geometry.ts';
 
 // Exercise the actual React panel output using the project's existing TSX compiler.
 // CSS has no server-rendered behavior; geometry and workflow modules stay real.
-const files = ['PlanningPanel', 'WorkflowReview', 'RestorationPanel', 'AnthropicModelSelect'];
+const files = ['PlanningPanel', 'WorkflowReview', 'RestorationPanel', 'RestorationMeasurements', 'RestorationFloatingEditor', 'AnthropicModelSelect', 'AIActivity'];
 const compiled = new Map(await Promise.all(files.map(async name => {
   const url = new URL(`../src/${name}.tsx`, import.meta.url);
   return [url.href, (await transformWithOxc(await readFile(url, 'utf8'), url.pathname)).code];
@@ -29,11 +31,12 @@ const loader = registerHooks({
     return compiled.has(url) ? { format: 'module', source: compiled.get(url), shortCircuit: true } : next(url, context);
   },
 });
-let PlanningPanel, WorkflowReview, WorkflowSettings, RestorationPanel;
+let PlanningPanel, WorkflowReview, WorkflowSettings, RestorationPanel, Dimensions, readDimensions, RestorationFloatingEditor;
 try {
   ({ PlanningPanel } = await import('../src/PlanningPanel.tsx'));
   ({ WorkflowReview, WorkflowSettings } = await import('../src/WorkflowReview.tsx'));
-  ({ RestorationPanel } = await import('../src/RestorationPanel.tsx'));
+  ({ RestorationPanel, Dimensions, readDimensions } = await import('../src/RestorationPanel.tsx'));
+  ({ RestorationFloatingEditor } = await import('../src/RestorationFloatingEditor.tsx'));
 } finally { loader.deregister(); }
 
 const noop = () => {};
@@ -155,10 +158,73 @@ test('restoration headings use draft arch labels and disclose template FDI only 
   assert.match(identified, /<strong>FDI 36 · molar<\/strong>/);
 });
 
+// A synthetic 0.1 mm/u scale keeps file units and mm visibly different.
+const fileUnitFixture = { radius: 19, length: 100, depth: 15, taper: .3 };
+const entered = values => key => values[key];
+const editorProps = (item, mmPerUnit) => ({ assembly: item, assemblies: [item], component: 'fixture', mmPerUnit, busy: false, error: '', minimized: false,
+  onExpand: noop, onComponent: noop, onSelect: noop, onEdit: noop, onMinimize: noop, onAgentEdit: noop, onReview: noop });
+
+test('restoration dimensions are shown in mm at the case scan scale and fall back to labelled file units', () => {
+  const parameters = { ...assembly().spec.parameters, fixture: fileUnitFixture };
+  const form = render(Dimensions, { component: 'fixture', parameters, disabled: false, editing: true, compact: true, onApply: noop, mmPerUnit: .1 });
+  assert.match(form, /Radius <small>mm<\/small>[^]*?aria-label="Implant \(fixture\) Radius \(mm\)"[^>]*value="1.9"/);
+  assert.match(form, /Length <small>mm<\/small>[^]*?value="10"/);
+  assert.match(form, /Platform depth below site surface <small>mm<\/small>[^]*?value="1.5"/);
+  assert.match(form, /Apical taper fraction <small>fraction<\/small>[^]*?value="0.3"/);
+  assert.match(form, /1 file unit = 0.1 mm/);
+  const item = { ...assembly(), spec: { ...assembly().spec, parameters } };
+  assert.match(render(RestorationFloatingEditor, editorProps(item, .1)), /Upper draft · mm · scan scale 0.1 mm\/u[^]*value="1.9"/);
+  const panel = render(RestorationPanel, { ...restorationProps([item]), mmPerUnit: .1 });
+  assert.match(panel, /Dimensions are mm at scan scale 0.1 mm\/u/);
+  assert.match(panel, /Radius: 1.9 mm · Length: 10 mm · Platform depth below site surface: 1.5 mm · Apical taper fraction: 0.3 fraction/);
+  // Without a scale, nothing is presented as millimetres.
+  const unscaled = render(Dimensions, { component: 'fixture', parameters, disabled: false, editing: true, compact: true, onApply: noop, mmPerUnit: null });
+  assert.match(unscaled, /Radius <small>u<\/small>[^]*?value="19"/);
+  assert.doesNotMatch(unscaled, /<small>mm<\/small>/);
+  assert.match(render(RestorationFloatingEditor, editorProps(item, null)), /Upper draft · file units \(u\) · scan scale unset/);
+  assert.match(render(RestorationPanel, restorationProps([item])), /Dimensions are file units \(u\); the scan scale is unset/);
+});
+
+test('applied mm dimensions convert once to file units and regenerate an implant of the entered size', () => {
+  const parameters = { ...assembly().spec.parameters, fixture: fileUnitFixture };
+  const fixture = { radius: '2.1', length: '10', depth: '1.5', taper: '0.3' };
+  // Edited lengths convert mm → file units; untouched values stay exact.
+  assert.deepEqual(readDimensions('fixture', parameters, entered(fixture), .1), { values: { radius: 21, length: 100, depth: 15, taper: .3 } });
+  assert.deepEqual(readDimensions('fixture', parameters, entered(fixture), null), { values: { radius: 2.1, length: 10, depth: 1.5, taper: .3 } });
+  // A fitted value is displayed to the micrometre but kept exactly when untouched.
+  const fitted = { ...parameters, fixture: { ...fileUnitFixture, radius: 0.43313763123456789 } };
+  assert.equal(readDimensions('fixture', fitted, entered({ ...fixture, radius: '0.433', length: '100', depth: '15' }), 1).values.radius, 0.43313763123456789);
+  assert.equal(readDimensions('fixture', fitted, entered({ ...fixture, radius: '0.44', length: '100', depth: '15' }), 1).values.radius, 0.44);
+  for (const radius of ['', '0', '-1', 'abc']) assert.match(readDimensions('fixture', parameters, entered({ ...fixture, radius }), .1).error, /valid radius/);
+  assert.match(readDimensions('fixture', parameters, entered({ ...fixture, taper: '1' }), .1).error, /valid apical taper fraction/);
+
+  const spec = { version: 'implant-assembly/v1', fdi: 26, parentPartId: 'upper', frame, anatomy: 'molar', provenance: 'hypothesized', units: 'file units (u)', source: 'Synthetic site.',
+    parameters: { fixture: fileUnitFixture, abutment: { radius: 15, height: 40, emergenceRadius: 20, angleX: 0, angleY: 0 }, crown: { width: 100, depth: 100, height: 75, cuspHeight: 10, rotation: 0 } } };
+  const { values } = readDimensions('fixture', spec.parameters, entered({ ...fixture, length: '11.5' }), .1);
+  const edited = applyRestorationEdit(spec, { reason: 'Manual fixture dimension adjustment.', parameters: { fixture: values } }, 'manual');
+  const [diameter, , length] = generateRestoration(edited)[0].dimensions.map(value => value * .1);
+  assert.ok(Math.abs(diameter - 4.2) < 1e-5 && Math.abs(length - 11.5) < 1e-5, `${diameter} × ${length} mm`);
+});
+
 test('manual mode is optional and records are never described as automatically reviewed', () => {
   const html = render(WorkflowSettings, { disabled: false, manualMode: false });
   assert.match(html, /I want to generate sites manually/);
   assert.doesNotMatch(html, /Ask below evidence score/);
   assert.match(html, /routine findings do not pause the automatic draft/);
   assert.match(html, /do not become reviewed clinical records/);
+});
+
+test('terminal lower spaces stay visible for review with opposing teeth and no automatic-generation controls', () => {
+  const terminal = site({ arch: 'lower', kind: 'terminal', fdi: null, draftIdentity: undefined, status: 'segmentation-unresolved',
+    adjacent: { mesial: { fdi: 36, confidence: .9 }, distal: null },
+    opposing: { teeth: [{ fdi: 26, confidence: .9 }, { fdi: 27, confidence: .6 }], poseVerified: false },
+  });
+  const html = render(WorkflowReview, { sites: [terminal], onSelect: noop });
+  assert.match(html, /Lower terminal ridge/);
+  assert.match(html, /Mesial neighbour/);
+  assert.match(html, /FDI 36/);
+  assert.match(html, /FDI 26, FDI 27 \(provisional\)/);
+  assert.match(html, /bite unverified/);
+  assert.match(html, /does not trigger an automatic implant concept/);
+  assert.doesNotMatch(html, /Automatic draft available|Generate \/ inspect this site|Use this hypothesis/);
 });

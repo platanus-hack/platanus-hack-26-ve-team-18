@@ -55,6 +55,11 @@ export function describeProcess(input: ProcessInput): ProcessState {
     step('fit', 'Place & fit concepts', 'Fit supported sites to the current scan pose.'),
     step('review', 'Check the draft', 'Report sampled distances, findings and unresolved questions automatically.'),
   ];
+  if (assessmentSource === 'ai') {
+    steps[2].detail = 'Build the implant, pilar and crown from the AI-selected design.';
+    steps[3].label = 'Measure the design';
+    steps[3].detail = 'Measure the AI design against current surfaces.';
+  }
   const cancelled = input.workflowPaused || input.run?.status === 'cancelled';
   const continuing = input.run?.status === 'running' && !cancelled && !input.error;
   const working = input.preparing || input.assessing || input.generating || input.reviewingAi
@@ -78,7 +83,7 @@ export function describeProcess(input: ProcessInput): ProcessState {
   if (generatedCount) {
     steps[2].status = steps[3].status = 'complete';
     steps[2].detail = `${generatedCount} concept ${generatedCount === 1 ? 'assembly' : 'assemblies'} built.`;
-    steps[3].detail = 'Local fitting completed; clinical fit remains unvalidated.';
+    steps[3].detail = assessmentSource === 'ai' ? 'AI design constructed and measured; clinical fit remains unvalidated.' : 'Local fitting completed; clinical fit remains unvalidated.';
   }
   if (!input.scanCount && !input.preparing && !input.error) return state;
   if ((input.preparing || input.queued) && !cancelled && !input.error) {
@@ -89,13 +94,13 @@ export function describeProcess(input: ProcessInput): ProcessState {
     state.status = 'running'; state.title = 'Creating the plan';
     state.detail = input.preparationStage || 'Assessing the prepared evidence.'; steps[1].status = 'running';
   } else if (input.generating) {
-    state.status = 'running'; state.title = input.generationPhase === 'fitting' ? 'Placing & fitting concepts' : 'Creating implant concepts';
+    state.status = 'running'; state.title = input.generationPhase === 'fitting' ? assessmentSource === 'ai' ? 'Measuring the AI design' : 'Placing & fitting concepts' : 'Creating implant concepts';
     state.detail = input.generationDetail || 'Building editable concepts in detected gaps.';
     steps[2].status = input.generationPhase === 'fitting' ? 'complete' : 'running';
     steps[3].status = input.generationPhase === 'fitting' ? 'running' : 'pending';
   } else if (input.reviewingAi) {
     state.status = 'running'; state.title = 'AI is reviewing the draft';
-    state.detail = 'Reviewing placed concepts, current surface measurements and shared evidence automatically. Findings are annotations; clinical fit remains unvalidated.';
+    state.detail = 'Reviewing placed concepts, measured requirements and shared evidence, with bounded design revisions when supported. Clinical fit remains unvalidated.';
     steps[4].status = 'running'; steps[4].detail = 'Preparing an evidence-based review of the completed local work.';
   } else if (cancelled && !input.error) {
     state.status = 'paused'; state.title = 'Workflow paused'; state.detail = 'Completed work is retained. Continue locally without another AI request.';

@@ -4,7 +4,7 @@ export const WORKFLOW_STAGE_IDS = ['preparation', 'assessment', 'sites', 'anatom
 export const WORKFLOW_STAGE_LABELS = { preparation: 'Prepare evidence', assessment: 'Assess case', sites: 'Localize spaces', anatomy: 'Generate & fit', review: 'Review & handoff' };
 export type WorkflowStageId = typeof WORKFLOW_STAGE_IDS[number];
 // Eight fit dimensions need sixteen trials plus the baseline for one full sweep.
-export const WORKFLOW_BUDGET = Object.freeze({ providerRequests: 2, providerSteps: 3, outputTokensPerStep: 8192, toolCalls: 16, sites: 16, candidatesPerSite: 32, fitMsPerSite: 12_000, workflowMs: 240_000, reviewMs: 60_000 });
+export const WORKFLOW_BUDGET = Object.freeze({ providerRequests: 6, providerSteps: 6, outputTokensPerStep: 8192, toolCalls: 48, sites: 16, candidatesPerSite: 32, fitMsPerSite: 12_000, workflowMs: 240_000, reviewMs: 90_000 });
 const stageStatus = z.enum(['pending', 'running', 'complete', 'partial', 'cancelled', 'stale']);
 const finiteTime = z.number().finite().nonnegative();
 export const workflowRunSchema = z.strictObject({
@@ -12,6 +12,7 @@ export const workflowRunSchema = z.strictObject({
   status: z.enum(['running', 'complete', 'partial', 'cancelled', 'stale']),
   stages: z.array(z.strictObject({ id: z.enum(WORKFLOW_STAGE_IDS), status: stageStatus, durationMs: finiteTime, detail: z.string().max(4000) })).length(5),
   tools: z.array(z.strictObject({ name: z.string().max(100), stage: z.enum(WORKFLOW_STAGE_IDS), status: z.enum(['complete', 'partial', 'failed', 'cancelled']), durationMs: finiteTime, detail: z.string().max(4000), artifactIds: z.array(z.string().max(160)).max(64) })).max(128),
+  aiActivity: z.array(z.strictObject({ id: z.string().max(512), name: z.string().max(100), phase: z.enum(['running', 'complete', 'error']), input: z.unknown().optional(), output: z.unknown().optional(), durationMs: finiteTime.optional(), origin: z.literal('structured-command').optional() })).max(192).optional(),
 });
 export type WorkflowRun = z.infer<typeof workflowRunSchema>;
 export const correctionEventSchema = z.strictObject({ kind: z.enum(['identity', 'site', 'surface', 'chart', 'calibration', 'candidate', 'role', 'orientation', 'bite']), at: z.iso.datetime(), target: z.string().max(160) });

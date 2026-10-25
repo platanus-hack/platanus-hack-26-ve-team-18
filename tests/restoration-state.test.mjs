@@ -46,11 +46,11 @@ async function harness(t) {
   let cursor = 0, dirty = false, api, useRestorations;
   const h = { parts: [sourcePart()], teeth: toothCase(), hypothesisRevision: null,
     get api() { return api; }, get queuedWorkerCount() { return workers.length; },
-    render(patch = {}) {
+    render(patch = {}, flushEffects = true) {
       Object.assign(h, patch);
       for (let pass = 0; pass < 12; pass++) {
         cursor = 0; dirty = false; api = useRestorations(h.parts, h.teeth, h.hypothesisRevision);
-        for (const slot of effects.splice(0)) { slot.cleanup?.(); slot.cleanup = slot.effect(); }
+        if (flushEffects) for (const slot of effects.splice(0)) { slot.cleanup?.(); slot.cleanup = slot.effect(); }
         if (!dirty) return api;
       }
       throw new Error('Hook scheduler did not settle.');
@@ -100,6 +100,12 @@ async function harness(t) {
   h.render(); t.after(() => h.dispose()); return h;
 }
 const microtasks = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+function prepareFitTargets(worker) {
+  const request = worker.request;
+  const surfaces = fittingSurfaces(request.spec, request.parts, request.teeth, request.site, request.scans);
+  worker.reply({ type: 'targets', targetIds: surfaces.map(surface => surface.id) });
+  return surfaces;
+}
 async function replyFit(worker) {
   assert.equal(worker.request.type, 'prepare-fit');
   assert.ok(worker.url.endsWith('/restoration-fit.worker.ts'));
@@ -331,7 +337,7 @@ test('hypothesis token changes immediately cancel AI localization, generation an
   }
 });
 
-test('manual jobs survive token-only changes while a completed AI hypothesis is invalidated', async t => {
+test('manual localization survives token changes; fitting against a generated hypothesis cancels', async t => {
   for (const stage of ['site', 'geometry', 'tuning']) for (const hypothesisRevision of ['assessment-b', null]) {
     await t.test(`${stage}: ${hypothesisRevision}`, async t => {
       const h = await harness(t);
@@ -343,7 +349,18 @@ test('manual jobs survive token-only changes while a completed AI hypothesis is 
       if (stage === 'geometry') {
         pending.reply({ specs: [concept()], warnings: [] }); await microtasks(); pending = h.takeWorker();
       }
+      if (stage !== 'site') assert.ok(prepareFitTargets(pending).some(surface => surface.id.includes(':generated-crown:')), 'The overlapping hypothesis is actual local target evidence.');
       h.render({ hypothesisRevision });
+      if (stage !== 'site') {
+        // Once retained by the worker crop, the hypothesis is evidence for the manual
+        // fit too. Localization has no generated targets and stays independent.
+        assert.equal(pending.terminated, true);
+        assert.equal(await settlesImmediately(work), true);
+        await replyFit(pending); await work; h.render();
+        assert.deepEqual(currentAssemblies(h).map(assembly => assembly.id), manual ? [manual.id] : []);
+        retainedStale(h, hypothesis.id);
+        return;
+      }
       assert.equal(pending.terminated, false);
       assert.equal(h.api.busy, true);
       assert.deepEqual(currentAssemblies(h).map(assembly => assembly.id), manual ? [manual.id] : [], 'Only the old AI concept becomes stale');
@@ -357,6 +374,79 @@ test('manual jobs survive token-only changes while a completed AI hypothesis is 
       assert.deepEqual(currentAssemblies(h).map(assembly => assembly.spec.fdi), [36]);
       if (manual) assert.equal(currentAssemblies(h)[0].id, manual.id);
       assert.ok(currentAssemblies(h)[0].warnings.every(warning => !/AI-proposed/.test(warning)));
+    });
+  }
+});
+
+test('manual jobs survive assessment changes when the AI crown is outside their fitting region', async t => {
+  for (const stage of ['site', 'geometry', 'tuning']) for (const hypothesisRevision of ['assessment-b', null]) for (const discovered of stage === 'site' ? [false] : [false, true]) {
+    await t.test(`${stage}: ${hypothesisRevision}, targets ${discovered ? 'known' : 'pending'}`, async t => {
+      const h = await harness(t);
+      h.render({ hypothesisRevision: 'assessment-a', teeth: editRecord(h, 46, { status: 'unreviewed', restoration: 'none', site: undefined }) });
+      const manual = stage === 'tuning' ? await createAssembly(h) : null;
+      const distant = concept(46); distant.frame.origin = [100, 0, 0];
+      const hypothesis = await createAssembly(h, distant, [proposal(46)]);
+      const work = stage === 'tuning'
+        ? h.api.update(manual.id, { ...manual.spec.parameters, crown: { ...manual.spec.parameters.crown, width: manual.spec.parameters.crown.width * 1.01 } })
+        : h.api.create([36], h.teeth, []);
+      let pending = h.takeWorker();
+      if (stage === 'geometry') {
+        pending.reply({ specs: [concept()], warnings: [] }); await microtasks(); pending = h.takeWorker();
+      }
+      if (stage !== 'site') {
+        const request = pending.request;
+        assert.equal(request.parts.filter(part => part.restoration).length, 1, 'The request initially supplies the other current crown.');
+        assert.ok(fittingSurfaces(request.spec, request.parts, request.teeth).every(surface => !surface.id.includes(':generated-crown:')), 'The worker crop proves that the distant crown supplies no fitting evidence.');
+        if (discovered) prepareFitTargets(pending);
+      }
+      h.render({ hypothesisRevision });
+      assert.equal(pending.terminated, false, 'An unrelated assessment must not cancel manual work.');
+      assert.equal(h.api.busy, true);
+      assert.equal(await settlesImmediately(work), false);
+      retainedStale(h, hypothesis.id);
+      if (stage === 'site') {
+        pending.reply({ specs: [concept()], warnings: [] }); await microtasks(); pending = h.takeWorker();
+      }
+      const fitted = await replyWithTargets(pending);
+      assert.ok(fitted.report.after.surfaces.every(surface => !surface.id.includes(':generated-crown:')));
+      await work; h.render();
+      assert.equal(h.api.busy, false);
+      assert.deepEqual(currentAssemblies(h).map(assembly => assembly.spec.fdi), [36]);
+      if (manual) assert.equal(currentAssemblies(h)[0].id, manual.id);
+    });
+  }
+});
+
+test('late target discovery and results reject the original stale assessment before effects run', async t => {
+  for (const role of ['adjacent', 'other-tooth', 'antagonist']) for (const hypothesisRevision of ['assessment-b', null]) for (const response of ['targets', 'result']) {
+    await t.test(`${role}: ${hypothesisRevision}, ${response}`, async t => {
+      const h = await harness(t);
+      h.render({ hypothesisRevision: 'assessment-a' });
+      const spec = concept(role === 'adjacent' ? 37 : role === 'antagonist' ? 26 : 46);
+      if (role === 'antagonist') {
+        h.render({ parts: [...h.parts, { ...sourcePart(), id: 'synthetic-upper', role: 'upper' }] });
+        spec.parentPartId = 'synthetic-upper'; spec.frame.origin = [0, 0, 4];
+      } else spec.frame.origin = [4, 0, 0];
+      // For an other-tooth target, keep a closer reviewed flank on that side.
+      if (role === 'other-tooth') h.render({ teeth: { ...h.teeth, labels: { ...h.teeth.labels, 'synthetic-lower': Uint8Array.of(35) } } });
+      const hypothesis = await createAssembly(h, spec, [proposal(spec.fdi)]);
+      const work = h.api.create([36], h.teeth, []);
+      h.takeWorker().reply({ specs: [concept()], warnings: [] }); await microtasks();
+      const pending = h.takeWorker(), request = pending.request;
+      const surfaces = fittingSurfaces(request.spec, request.parts, request.teeth, request.site, request.scans);
+      assert.equal(surfaces.find(surface => surface.id.includes(':generated-crown:'))?.role, role);
+      h.render({ hypothesisRevision }, false);
+      assert.equal(pending.terminated, false, 'Target relevance is still unknown until preparation replies.');
+      if (response === 'targets') pending.reply({ type: 'targets', targetIds: surfaces.map(surface => surface.id) });
+      const result = await fitRestoration({ spec: request.spec, surfaces, options: { maxCandidates: 1, samplesPerSurface: 16 } });
+      pending.reply({ type: 'result', result });
+      await work; h.render();
+      assert.equal(pending.terminated, true);
+      assert.equal(h.api.busy, false);
+      assert.equal(h.queuedWorkerCount, 0);
+      assert.equal(h.api.assemblies.some(assembly => assembly.spec.fdi === 36), false, 'A current token must never be substituted into the old request evidence.');
+      retainedStale(h, hypothesis.id);
+      assert.match(h.api.error, /evidence changed/i);
     });
   }
 });
@@ -631,6 +721,49 @@ test('candidate comparison evaluates a separate copy and preserves the original 
   await retry; h.render(); assert.equal(h.api.assemblies.length, 2); assert.equal(h.api.assemblies[0], original);
 });
 
+test('exact edits and comparisons preserve construction profiles and reject worker upgrades or downgrades', async t => {
+  for (const componentDesign of [undefined, 'nested-support/v1']) {
+    const h = await harness(t), initial = concept();
+    if (componentDesign) initial.componentDesign = componentDesign;
+    const original = await createAssembly(h, initial);
+    const comparison = h.api.compare(original.id, 0), copyWorker = h.takeWorker();
+    assert.equal(copyWorker.request.spec.componentDesign, componentDesign);
+    await replyFit(copyWorker); await comparison; h.render();
+    assert.equal(h.api.assemblies[1].spec.componentDesign, componentDesign);
+    const edit = h.api.edit(original.id, { reason: 'Measure exact profile-preserving edit.', parameters: { crown: { width: 4.2 } } });
+    const editWorker = h.takeWorker();
+    assert.equal(editWorker.request.spec.componentDesign, componentDesign);
+    await replyFit(editWorker); await edit; h.render();
+    const current = h.api.assemblies.find(assembly => assembly.id === original.id);
+    assert.equal(current.spec.componentDesign, componentDesign);
+    assert.equal(current.previousVersions[0].spec.componentDesign, componentDesign);
+    const rejected = h.api.edit(current.id, { reason: 'Reject an unauthorized construction change.', parameters: { crown: { width: 4.3 } } });
+    const rejection = assert.rejects(rejected, /construction profile/), worker = h.takeWorker();
+    const changed = structuredClone(worker.request.spec);
+    if (componentDesign) delete changed.componentDesign; else changed.componentDesign = 'nested-support/v1';
+    const result = await fitRestoration({ spec: changed, surfaces: [], options: { maxCandidates: 1 } });
+    worker.reply({ type: 'result', result }); await rejection; h.render();
+    assert.equal(h.api.assemblies.find(assembly => assembly.id === original.id), current);
+  }
+});
+
+test('an explicit rebuild opts into nested support while a legacy fit retry retains its construction', async t => {
+  const h = await harness(t), original = await createAssembly(h), measure = value => ({ value, unit: 'file units (u)', provenance: 'measured', method: 'Synthetic measured envelope.' });
+  const site = { id: 'profile-rebuild-site', fdi: 36, arch: 'lower', partId: original.spec.parentPartId, status: 'proposed-missing',
+    anchor: { partId: original.spec.parentPartId, face: 0, point: [0, 0, 0] }, frame: original.spec.frame, frameBasis: 'Synthetic site.',
+    mesialSign: 1, buccalSign: 1, adjacent: {}, slot: { index: 0, count: 1, s: [0, 5] },
+    space: { mesiodistal: measure(4), proximalGap: measure(4), buccolingual: measure(4), crownHeight: measure(5), vertical: measure(5) } };
+  h.api.restore([original], [], [site]); h.render();
+  const retry = h.api.compare(original.id), retryWorker = h.takeWorker();
+  assert.equal(Object.hasOwn(retryWorker.request.spec, 'componentDesign'), false);
+  await replyFit(retryWorker); await retry; h.render();
+  const rebuild = h.api.rebuild(original.id), rebuiltWorker = h.takeWorker();
+  assert.equal(rebuiltWorker.request.spec.componentDesign, 'nested-support/v1');
+  await replyFit(rebuiltWorker); await rebuild; h.render();
+  assert.equal(h.api.assemblies.find(assembly => assembly.id === original.id).spec.componentDesign, undefined);
+  assert.equal(h.api.assemblies.at(-1).spec.componentDesign, 'nested-support/v1');
+});
+
 test('successful parameter edits retain prior anatomy, fit and candidates for an independently evaluated copy', async t => {
   const h = await harness(t), original = await createAssembly(h);
   const parameters = structuredClone(original.spec.parameters); parameters.fixture.depth = .5;
@@ -646,4 +779,153 @@ test('successful parameter edits retain prior anatomy, fit and candidates for an
   await replyFit(comparison); await compare; h.render();
   assert.equal(h.api.assemblies.length, 2); assert.equal(h.api.assemblies[0], current);
   assert.equal(h.api.displayParts.filter(part => part.visible).length, 3, 'only the selected same-site alternative is shown and compared');
+});
+
+async function replyWithTargets(worker) {
+  const request = worker.request;
+  const result = await fitRestoration({ spec: request.spec,
+    surfaces: prepareFitTargets(worker),
+    options: { maxCandidates: 1, samplesPerSurface: 16, maxDurationMs: 10_000 } });
+  worker.reply({ type: 'result', result });
+  return result;
+}
+
+async function createPair(h) {
+  const first = concept(36), second = concept(37); second.frame.origin = [4, 0, 0];
+  const work = h.api.create([36, 37], h.teeth, []);
+  h.takeWorker().reply({ specs: [first, second], warnings: [] }); await microtasks();
+  await replyWithTargets(h.takeWorker()); await microtasks();
+  const next = h.takeWorker(), generated = next.request.parts.filter(part => part.restoration);
+  assert.equal(generated.length, 1, 'The first completed crown is immediately supplied to the sequential fit.');
+  assert.equal(generated[0].restoration.component, 'crown');
+  const result = await replyWithTargets(next);
+  assert.ok(result.report.after.surfaces.some(surface => surface.id.includes(':generated-crown:') && surface.role === 'adjacent'));
+  await work; h.render();
+  assert.equal(currentAssemblies(h).length, 2);
+  return h.api.assemblies;
+}
+
+test('sequential crowns fit one another and changed target revisions stale only the dependent report', async t => {
+  const h = await harness(t), [first, second] = await createPair(h);
+  const pending = h.api.edit(first.id, { reason: 'Revise the neighboring crown.', parameters: { crown: { width: 4.1 } } });
+  const worker = h.takeWorker();
+  assert.deepEqual(worker.request.parts.filter(part => part.restoration).map(part => part.restoration.assemblyId), [second.id], 'Only the other assembly is a fit target.');
+  await replyWithTargets(worker); const edited = await pending; h.render();
+  retainedStale(h, second.id);
+  assert.equal(isStale(h.api.assemblies.find(assembly => assembly.id === edited.id)), false, 'A stale target report does not change its surface or cascade back to this fresh fit.');
+  await assert.rejects(h.api.edit(second.id, { reason: 'Reject obsolete pair evidence.', parameters: { crown: { width: 4.2 } } }), /evidence changed/);
+});
+
+test('removing a generated target invalidates completed pair evidence before another edit', async t => {
+  const h = await harness(t), [first, second] = await createPair(h);
+  h.api.remove(first.id);
+  await assert.rejects(h.api.edit(second.id, { reason: 'Target no longer exists.', parameters: { crown: { width: 4.2 } } }), /evidence changed/);
+  h.render(); retainedStale(h, second.id);
+});
+
+test('a new current same-site comparison invalidates reports measured against the older crown', async t => {
+  const h = await harness(t), [first, second] = await createPair(h);
+  const work = h.api.compare(first.id, 0);
+  await replyWithTargets(h.takeWorker()); await work; h.render();
+  assert.equal(h.api.assemblies.length, 3);
+  retainedStale(h, second.id);
+  assert.equal(isStale(h.api.assemblies.at(-1)), false);
+});
+
+test('generated pair evidence survives a common rigid pose and presentation edits', async t => {
+  const h = await harness(t), [first, second] = await createPair(h);
+  h.api.togglePart(first.parts.find(part => part.restoration.component === 'crown').id); h.render();
+  h.render({ parts: [{ ...h.parts[0], pose: new Matrix4().makeRotationZ(.35).setPosition(20, -10, 5).toArray(), rotation: [8, 12, 4], offset: [2, 3, 1] }] });
+  assert.equal(currentAssemblies(h).length, 2);
+  const pending = h.api.compare(second.id, 0), worker = h.takeWorker();
+  assert.deepEqual(worker.request.parts.filter(part => part.restoration).map(part => part.restoration.assemblyId), [first.id], 'Comparison excludes every version of its own site, even when it receives a new assembly ID.');
+  await replyWithTargets(worker); await pending; h.render();
+  assert.ok(h.api.assemblies.every(assembly => !isStale(assembly)));
+});
+
+test('reopened pair reports bind their recorded crown revision and reject missing or replaced targets', async t => {
+  const h = await harness(t), [first, second] = await createPair(h);
+  h.api.restore([first, second]); h.render();
+  assert.equal(currentAssemblies(h).length, 2);
+  h.api.restore([{ ...first, createdAt: '2026-10-26T00:00:00.000Z' }, second]); h.render();
+  retainedStale(h, second.id);
+  h.api.restore([second]); h.render(); retainedStale(h, second.id);
+});
+
+test('removing a supplied crown cancels pending pair fitting and ignores its late reply', async t => {
+  const h = await harness(t), first = await createAssembly(h), spec = concept(37); spec.frame.origin = [4, 0, 0];
+  const pending = h.api.create([37], h.teeth, []);
+  h.takeWorker().reply({ specs: [spec], warnings: [] }); await microtasks();
+  const worker = h.takeWorker();
+  assert.equal(worker.request.parts.filter(part => part.restoration).length, 1);
+  h.api.remove(first.id);
+  assert.equal(worker.terminated, true); assert.equal(await settlesImmediately(pending), true);
+  await replyWithTargets(worker); await pending; h.render();
+  assert.equal(h.api.assemblies.length, 0);
+});
+
+test('the target revision fence rejects a late worker result even before React effects run', async t => {
+  const h = await harness(t), first = await createAssembly(h), spec = concept(37); spec.frame.origin = [4, 0, 0];
+  const pending = h.api.create([37], h.teeth, []);
+  h.takeWorker().reply({ specs: [spec], warnings: [] }); await microtasks();
+  const worker = h.takeWorker();
+  first.createdAt = new Date(Date.parse(first.createdAt) + 1).toISOString();
+  await replyWithTargets(worker); await pending; h.render();
+  assert.equal(h.api.assemblies.length, 1); assert.match(h.api.error, /evidence changed/);
+});
+
+test('opposing generated crown evidence tracks the target arch chart', async t => {
+  const h = await harness(t);
+  h.render({ parts: [...h.parts, { ...sourcePart(), id: 'synthetic-upper', role: 'upper' }] });
+  const spec = concept(26); spec.parentPartId = 'synthetic-upper'; spec.frame.origin = [0, 0, 4];
+  const upper = await createAssembly(h, spec);
+  const work = h.api.create([36], h.teeth, []);
+  h.takeWorker().reply({ specs: [concept()], warnings: [] }); await microtasks();
+  const result = await replyWithTargets(h.takeWorker()); await work; h.render();
+  assert.ok(result.report.after.surfaces.some(surface => surface.id.includes(':generated-crown:') && surface.role === 'antagonist'));
+  const lower = h.api.assemblies.find(assembly => assembly.spec.fdi === 36);
+  h.render({ teeth: editRecord(h, 26, { status: 'present', restoration: 'none' }) });
+  retainedStale(h, upper.id); retainedStale(h, lower.id);
+});
+
+test('manual fits against hypothesized crowns track the target assessment and cancel stale work', async t => {
+  for (const phase of ['pending', 'completed']) {
+    const h = await harness(t);
+    h.render({ hypothesisRevision: 'assessment-a' });
+    await createAssembly(h, concept(), [proposal()]);
+    const spec = concept(37); spec.frame.origin = [4, 0, 0];
+    const work = h.api.create([37], h.teeth, []);
+    h.takeWorker().reply({ specs: [spec], warnings: [] }); await microtasks();
+    const worker = h.takeWorker();
+    prepareFitTargets(worker);
+    if (phase === 'completed') { await replyWithTargets(worker); await work; h.render(); }
+    h.render({ hypothesisRevision: 'assessment-b' });
+    if (phase === 'completed') retainedStale(h, h.api.assemblies.find(assembly => assembly.spec.fdi === 37).id);
+    else {
+      assert.equal(worker.terminated, true); assert.equal(await settlesImmediately(work), true);
+      await replyWithTargets(worker); await work; h.render();
+      assert.equal(h.api.assemblies.some(assembly => assembly.spec.fdi === 37), false);
+    }
+  }
+});
+
+test('generated pair targets and component audit IDs survive saved scan-ID remapping', async t => {
+  const { createPlanningSession, readPlanningSession } = await import('../src/planning-session.ts');
+  const { measureRestorationRelationships } = await import('../src/restoration-relationships.ts');
+  const { restorationFitParts } = await import('../src/restoration-fit-targets.ts');
+  const h = await harness(t), [first, second] = await createPair(h);
+  const surfaces = fittingSurfaces(second.spec, restorationFitParts(second.spec, second.id, h.parts, h.api.assemblies), h.teeth);
+  second.fit.relationships = await measureRestorationRelationships({ spec: second.spec,
+    components: second.parts.map(part => ({ ...part, component: part.restoration.component })), surfaces });
+  assert.ok(second.fit.relationships.relationships.some(row => row.targetId.includes(':generated-crown:') && row.target === 'adjacent'));
+  const saved = JSON.parse(JSON.stringify(await createPlanningSession({ parts: h.parts, teeth: h.teeth, assemblies: h.api.assemblies,
+    draft: null, mmPerUnit: null, unitsProvenance: 'Uncalibrated file units.', confidenceThreshold: .8,
+    patientRight: null, model: 'test', manualMode: true, progress: { stage: 'Review', completed: 0, total: 1 }, timings: [], acceptedActions: [] })));
+  const loaded = await readPlanningSession(saved, h.parts.map(part => ({ ...part, id: 'reimported-lower' })));
+  const target = loaded.assemblies[1].fit.after.surfaces.find(surface => surface.id.includes(':generated-crown:'));
+  assert.ok(target.id.startsWith('reimported-lower:generated-crown:'));
+  assert.ok(loaded.assemblies[1].fit.relationships.relationships.some(row => row.targetId === target.id));
+  h.render({ parts: loaded.parts, teeth: loaded.teeth }); h.api.restore(loaded.assemblies); h.render();
+  assert.equal(currentAssemblies(h).length, 2);
+  h.api.remove(first.id); h.render(); retainedStale(h, second.id);
 });

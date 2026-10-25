@@ -1,9 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { presentationOpacity, withArchOpacity } from '../src/presentation.ts';
+import { collisionSampleState, presentationOpacity, withArchOpacity } from '../src/presentation.ts';
 import { prepareCollisionParts } from '../src/collision-input.ts';
 
 const part = (id, role, restoration) => ({ id, role, restoration, visible: true, closed: false, offset: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0) });
+
+test('surface contact and the near threshold do not imply a red collision', () => {
+  assert.equal(collisionSampleState(false, 0, 0), 'near');
+  assert.equal(collisionSampleState(false, 0.0001, .5), 'near');
+  assert.equal(collisionSampleState(false, .5, .5), 'near');
+  assert.equal(collisionSampleState(false, .6, .5), 'clear');
+  assert.equal(collisionSampleState(false, Infinity, .5), 'clear');
+  assert.equal(collisionSampleState(false, NaN, .5), 'clear');
+  assert.equal(collisionSampleState(false, 2, 0, true), 'near', 'face contact can lie between distant corners');
+  assert.equal(collisionSampleState(true, 2, .5), 'collision', 'crossings do not require nearby corners');
+  assert.equal(collisionSampleState(false, -.0001, 0), 'collision', 'inside samples remain collision evidence');
+});
 
 test('jaw opacity includes its components without changing geometry or collision membership', () => {
   const upper = part('upper', 'upper'), lower = part('lower', 'lower'), bite = part('bite', 'bite');

@@ -292,6 +292,9 @@ test('unloaded anchors and nonfinite transformed points are unavailable', () => 
 });
 
 test('nearby vertex samples alone do not count as triangle crossings or inside samples', async () => {
+  const touching = await createAssistantTools(buildAssistantSnapshot(collisionInputs({ intersectingTriangles: 2, crossingTriangles: 0, contactTriangles: 2, penetratingVertices: 0 }))).getCollisionReport.execute({});
+  assert.equal(touching.crossingOrInsidePairCount, 0);
+  assert.equal(touching.report.pairs[0].contactTriangles, 2);
   const near = await createAssistantTools(buildAssistantSnapshot(collisionInputs({ intersectingTriangles: 0, penetratingVertices: 0, nearbyVertices: 5, minDistance: 0.15, maxDepth: 0 }))).getCollisionReport.execute({});
   assert.equal(near.status, 'available');
   assert.equal(near.crossingOrInsidePairCount, 0);

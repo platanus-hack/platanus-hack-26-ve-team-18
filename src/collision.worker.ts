@@ -13,7 +13,7 @@ const worker = globalThis as unknown as {
 worker.onmessage = ({ data: { id, parts, tolerance } }) => {
   try {
     const report = analyzeCollisions(parts, tolerance);
-    const transfer = report.parts.flatMap(p => [p.distances.buffer as ArrayBuffer, p.intersecting.buffer as ArrayBuffer]);
+    const transfer = report.parts.flatMap(p => [p.distances.buffer as ArrayBuffer, p.intersecting.buffer as ArrayBuffer, p.crossing.buffer as ArrayBuffer]);
     worker.postMessage({ id, report }, transfer);
   } catch (error) {
     worker.postMessage({ id, error: error instanceof Error ? error.message : String(error) }, []);

@@ -39,6 +39,28 @@ const output = () => ({
   limitations: ['Texture appearance is not a diagnosis.'],
 });
 
+test('prepared tooth relationships preserve multiple opponents and reject cross-arch or invented pairs', () => {
+  const req = request();
+  const tooth = (sourceId, candidateId, fdi) => ({ sourceId, candidateId, fdi, confidence: .6 });
+  req.preparation = { sources: [], sites: [{ id: 'site-1', sourceId: 'scan-2', fdi: null, kind: 'terminal', slotCount: 0,
+    status: 'identity-unresolved', confidence: 0, localized: true, supporting: [], conflicting: [], questions: [],
+    relationships: { adjacent: { mesial: tooth('scan-2', 1, 36), distal: null }, contralateral: null,
+      opposing: { sourceId: 'scan-1', teeth: [tooth('scan-1', 1, null), tooth('scan-1', 2, null)], poseVerified: false } },
+    space: { unit: 'file units (u)', mesiodistal: 8, buccolingual: 7, sampledVertical: null, verticalMethod: 'Unknown: bite unverified.' },
+  }] };
+  assert.equal(casePlanningRequestSchema.parse(req).preparation.sites[0].relationships.opposing.teeth.length, 2);
+  for (const mutate of [
+    site => { site.relationships.opposing.teeth[0].candidateId = 999; },
+    site => { site.relationships.opposing.sourceId = 'scan-2'; },
+    site => { site.relationships.adjacent.mesial.sourceId = 'scan-1'; },
+    site => { site.relationships.opposing.teeth[0].fdi = 46; },
+    site => { site.relationships.opposing.teeth[1] = site.relationships.opposing.teeth[0]; },
+  ]) {
+    const invalid = structuredClone(req); mutate(invalid.preparation.sites[0]);
+    assert.equal(casePlanningRequestSchema.safeParse(invalid).success, false);
+  }
+});
+
 test('related planning fields cannot split numerical fixture prescriptions', () => {
   const value = output();
   value.actions[0] = { ...value.actions[0], title: 'Implant review at FDI 11', rationale: 'Use a diameter of 4 mm and length of 10 mm.' };

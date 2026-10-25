@@ -8,14 +8,18 @@
  * Draft hypotheses are kept separate from the user-reviewed ToothCase.
  */
 import { z } from 'zod';
+import { restorationRelationshipsSchema } from './restoration-relationships-schema.ts';
+import { abutmentGingivaSchema, fixtureGingivaSchema } from './restoration-gingiva-schema.ts';
+import { restorationGoalSchema, restorationGoalSnapshot, summarizeGoalRows, type RestorationGoalSnapshot } from './restoration-goals.ts';
+import { restorationFeedbackTargetId } from './restoration-feedback.ts';
 import { Matrix4, Triangle, Vector3 } from 'three';
 import type { ModelPart } from './models.ts';
 import type { ToothCase } from './tooth-types.ts';
 import type { RestorationAssembly, RestorationSpec, RestorationFitReport } from './restoration-types.ts';
 import { acceptsFitCandidate } from './restoration-fit-selection.ts';
-import { validateRestorationSpec } from './restoration-geometry.ts';
+import { crownSupportRegion, generateRestoration, validateRestorationSpec } from './restoration-geometry.ts';
 import { restorationGuardrailsSchema, restorationQualityContextSchema, restorationQualitySchema } from './restoration-quality-schema.ts';
-import { evaluateRestorationQuality, type RestorationQualityReport } from './restoration-quality.ts';
+import { applyPilarCrownSupport, evaluateRestorationQuality, measurePilarCrownSupport, type RestorationQualityReport } from './restoration-quality.ts';
 import type { CasePlanningRequest, CasePlanningResult } from './case-planning-types.ts';
 import type { AutoToothScan } from './auto-tooth-types.ts';
 import type { CasePreparationResult, PreparedCaseSource } from './case-preparation-types.ts';
@@ -74,9 +78,10 @@ const shape = z.strictObject({
     selection: z.strictObject({ faces: z.array(count).min(60).max(120_000), frame: z.strictObject({ origin: vec, mesial: vec, buccal: vec, occlusal: vec }) }).optional() }),
   dims: z.tuple([positive, positive, positive]), rim: z.array(float32).length(CROWN_THETA), rimZ: z.array(float32).length(CROWN_THETA),
   wall: z.array(float32).length(CROWN_WALL * CROWN_THETA), occlusal: z.array(float32).length(CROWN_RINGS * CROWN_THETA), apex: finite,
+  reliefDatum: finite.gt(0).lt(1).optional(),
 });
 const specSchema = z.strictObject({
-  version: z.literal('implant-assembly/v1'), fdi, parentPartId: id, frame, parameters,
+  version: z.literal('implant-assembly/v1'), componentDesign: z.literal('nested-support/v1').optional(), fdi, parentPartId: id, frame, parameters,
   draftIdentity: z.strictObject({ siteId: id, templateFdi: fdi, alternatives: z.array(fdi).max(32), basis: text }).optional(),
   anatomy: z.enum(['incisor', 'canine', 'premolar', 'molar']), crownShape: shape.optional(), anatomicalSigns: z.strictObject({ mesial: sign, buccal: sign }).optional(),
   contour: z.strictObject({ cervicalScale: contourScale.optional(), occlusalScale: contourScale.optional() }).optional(),
@@ -84,13 +89,15 @@ const specSchema = z.strictObject({
   editProvenance: z.strictObject({ actor: z.enum(['manual', 'agent']), reason: z.string().trim().min(1).max(500) }).optional(),
   qualityContext: restorationQualityContextSchema.optional(),
   provenance: z.enum(['hypothesized', 'clinician-entered']), units: z.literal('file units (u)'), source: text.min(1),
-  siteEvidence: z.strictObject({ method: z.enum(['reviewed-surface', 'bounded-gap']), partIds: z.array(id).min(1).max(MAX_PARTS), fdis: z.array(fdi).max(32), surface: anchor,
+  siteEvidence: z.strictObject({ method: z.enum(['reviewed-surface', 'bounded-gap', 'distal-extension']), partIds: z.array(id).min(1).max(MAX_PARTS), fdis: z.array(fdi).max(32), surface: anchor,
     bounds: interval.optional(), slot: z.strictObject({ index: count, count: count.refine(value => value > 0) }).optional() }).optional(),
 }).refine(value => !value.editProvenance || value.provenance === (value.editProvenance.actor === 'manual' ? 'clinician-entered' : 'hypothesized'),
   'Restoration edit provenance must match its manual or agent actor.');
 const surfaceMeasurement = z.strictObject({
   id, role: z.enum(['adjacent', 'antagonist', 'tissue', 'source-arch', 'other-tooth']), side: z.enum(['mesial', 'distal']).optional(), targetGap: nonnegative, weight: positive,
+  sourceComponents: z.array(z.enum(['fixture', 'abutment', 'crown'])).min(1).max(3).refine(items => new Set(items).size === items.length, 'Duplicate fitting source component.').optional(),
   targetProvenance: text.optional(),
+  sourceRegion: z.literal('crown-body').optional(),
   targetTriangles: count, samples: count, sampledMinDistance: nonnegative, sampledRmsGapError: nonnegative, nearSamples: count,
   intersectingTriangles: count, intersectionTestedTriangles: count, verificationRetainedTriangles: count.optional(), intersectionComplete: z.boolean(),
   sampledMedianDistance: nonnegative.optional(), sampledP95Distance: nonnegative.optional(), sampledMaxGapDeficit: nonnegative.optional(), sampledRegionArea: nonnegative.optional(), intersectionTolerance: nonnegative.optional(),
@@ -105,6 +112,8 @@ const fitReport = z.strictObject({
   before: measurement, after: measurement, candidates: count, durationMs: nonnegative, units: z.literal('file units (u)'),
   candidateAttempts: count.optional(), invalidCandidates: count.optional(), bestCandidate: count.optional(),
   quality: z.strictObject({ initial: restorationQualitySchema, final: restorationQualitySchema, rounds: z.number().int().min(0).max(4), stopReason: z.enum(['checks-passed', 'budget', 'no-admissible-revision', 'measurement-only']) }).optional(),
+  relationships: restorationRelationshipsSchema.optional(),
+  goal: restorationGoalSchema.optional(), gingiva: fixtureGingivaSchema.optional(), abutmentGingiva: abutmentGingivaSchema.optional(),
   anatomyCandidates: z.array(shape).min(1).max(2).optional(),
   referencePlanes: z.strictObject({ site: plane, fixturePlatform: plane, fixtureApex: plane, crownBase: plane, interpretation: z.literal('generic-contiguous-envelopes; no compatible implant connection') }),
   sampling: z.strictObject({ method: z.literal('deterministic-area-stratified-triangle-barycentres'), direction: z.literal('restoration-to-target'), requestedPerSurface: count, fullResolutionDistanceTargets: z.literal(true), maximumIntersectionTargetTriangles: count, maximumVerificationRegionTriangles: count.optional() }), limits: strings,
@@ -162,7 +171,7 @@ const site = z.strictObject({
   id, arch, partId: id, fdi: fdi.nullable(), alternatives: z.array(fdi).max(32),
   draftIdentity: z.strictObject({ templateFdi: fdi, alternatives: z.array(fdi).max(32), basis: text }).optional(),
   status: z.enum(['proposed-missing', 'dentist-confirmed-missing', 'not-scanned', 'segmentation-unresolved', 'identity-unresolved']), confidence,
-  priority: z.enum(['high', 'medium', 'low']), kind: z.enum(['bounded', 'terminal', 'chart']), slot: z.strictObject({ index: count, count, s: interval }),
+  priority: z.enum(['high', 'medium', 'low']), kind: z.enum(['bounded', 'terminal', 'distal-extension', 'chart']), slot: z.strictObject({ index: count, count, s: interval }),
   evidence: z.strictObject({ supporting: strings, conflicting: strings }), anchor: anchor.nullable(), patchFaces: z.array(count).max(MAX_TRIANGLES), frame: frame.nullable(), frameBasis: text,
   frameEvidence: z.strictObject({ status: z.enum(['hypothesized', 'unavailable']), mesial: z.enum(['hypothesized', 'unknown']), buccal: z.enum(['hypothesized', 'unknown']), limitations: strings }).optional(),
   mesialSign: sign, buccalSign: sign, adjacent: z.strictObject({ mesial: neighbour.nullable(), distal: neighbour.nullable() }),
@@ -173,7 +182,7 @@ const preparedSchema = z.strictObject({
   id: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), revision: id,
   durationMs: nonnegative.optional(),
   scans: z.array(sourceScan.extend({ analysis: analysisSchema.nullable(), numbering: numbering.nullable(), draftLabels: z.array(z.number().int().min(0).max(255)).max(MAX_TRIANGLES), warnings: strings })).max(MAX_PARTS),
-  sites: z.array(site).max(128), identities: z.array(z.strictObject({ partId: id, candidateId: count, fdi: fdi.nullable(), confidence, alternatives: z.array(fdi).max(32), needsReview: z.boolean(), reason: text, blockingReasons: z.array(z.string().max(1000)).max(32).optional(), source: z.enum(['geometry', 'reviewed']) })).max(8192), warnings: strings,
+  sites: z.array(site).max(128), identities: z.array(z.strictObject({ partId: id, candidateId: count, fdi: fdi.nullable(), confidence, alternatives: z.array(fdi).max(32), needsReview: z.boolean(), reason: text, blockingReasons: z.array(z.string().max(1000)).max(32).optional(), source: z.enum(['geometry', 'reviewed', 'ai']) })).max(8192), warnings: strings,
 });
 const evidenceSource = sourceScan.extend({ analysis: analysisSchema.nullable().optional(), numbering: numbering.nullable().optional(), draftLabels: z.array(z.number().int().min(0).max(255)).max(MAX_TRIANGLES).optional(), warnings: strings.optional() });
 const draftSchema = z.strictObject({ evidence: z.strictObject({ revision: id, sources: z.array(evidenceSource).max(MAX_PARTS), views: z.array(view).max(8) }), result: resultSchema.nullable(), prepared: preparedSchema.optional() });
@@ -277,16 +286,33 @@ function json(value: unknown, depth = 0): Json {
 }
 
 /** Only structural references are rewritten; clinical prose and stable artifact IDs are untouched. */
-function remap(value: Json, parts: Map<string, string>, aliases: Map<string, string>, field = ''): Json {
-  if (Array.isArray(value)) return value.map(item => remap(item, parts, aliases, field));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => {
-    const mappedKey = ['identityDecisions', 'siteDecisions', 'identityRegions'].includes(field) ? remap(key, parts, aliases, 'id') as string : key;
-    return [mappedKey, remap(item, parts, aliases, key)];
-  }));
+function remap(value: Json, parts: Map<string, string>, aliases: Map<string, string>, field = '', goalIds?: Map<string, string>): Json {
+  if (Array.isArray(value)) return value.map(item => remap(item, parts, aliases, field, goalIds));
+  if (value && typeof value === 'object') {
+    // Goal target rows use opaque hashes, not array indices. Rewrite every
+    // historical snapshot from its raw target map so bounds stay with targets.
+    if (value.version === 'restoration-goal/v1' && value.targetGaps && typeof value.targetGaps === 'object' && !Array.isArray(value.targetGaps)) {
+      goalIds = new Map(Object.keys(value.targetGaps).map(key => [restorationFeedbackTargetId(key),
+        restorationFeedbackTargetId(remap(key, parts, aliases, 'targetId') as string)]));
+      // evidenceRevision is historical and opaque. A retry must recompute it
+      // against current target bytes/IDs, while retaining original bounds.
+    }
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+      const mappedKey = field === 'targetGaps' ? remap(key, parts, aliases, 'targetId') as string
+        : ['identityDecisions', 'siteDecisions', 'identityRegions'].includes(field) ? remap(key, parts, aliases, 'id') as string : key;
+      return [mappedKey, remap(item, parts, aliases, key, goalIds)];
+    }));
+  }
   if (typeof value !== 'string') return value;
   if (['partId', 'parentPartId', 'donorPartId', 'partIds'].includes(field)) return parts.get(value) ?? fail('A planning dependency is missing from the source scans.');
   if (field === 'sourceId') return aliases.get(value) ?? fail('A draft source alias is missing.');
-  if (field === 'evidence' || field === 'id' || field === 'focusedSiteId' || field === 'siteId') {
+  if (field === 'targetId' && parts.has(value)) return parts.get(value)!;
+  if ((field === 'id' || field === 'target') && goalIds) for (const [before, after] of goalIds) if (value === before || value.startsWith(`${before}.`)) return `${after}${value.slice(before.length)}`;
+  if (field === 'id' && /^(fixture|abutment)-to-adjacent:/.test(value)) {
+    const colon = value.indexOf(':');
+    return value.slice(0, colon + 1) + remap(value.slice(colon + 1), parts, aliases, 'targetId');
+  }
+  if (field === 'evidence' || field === 'id' || field === 'targetId' || field === 'focusedSiteId' || field === 'siteId') {
     // Named fitting targets may use a source id followed by a region suffix.
     for (const [before, after] of field === 'evidence' ? aliases : parts) if (value.startsWith(`${before}:`)) return `${after}${value.slice(before.length)}`;
     for (const [before, after] of parts) if (value.includes(`-${before}-`)) return value.replace(`-${before}-`, `-${after}-`);
@@ -436,6 +462,45 @@ function qualityHistoryEvidence(quality: RestorationQualityReport | undefined) {
   // Guardrails are an additive report extension, not candidate selection evidence.
   const { guardrails, ...evidence } = quality;
   return JSON.stringify(evidence);
+}
+function goalSnapshotEvidence(snapshot: RestorationGoalSnapshot) {
+  unique(snapshot.rows.map(row => row.id), 'goal requirement');
+  // Source labels and explanatory prose are historical. Compare the typed
+  // requirement evidence by identity, never by a row's presentation position.
+  return JSON.stringify({ status: snapshot.status, requiredError: snapshot.requiredError, preferenceError: snapshot.preferenceError,
+    rows: snapshot.rows.map(({ id, priority, actual, lower, upper, exclusiveUpper, error, units, status }) => ({ id, priority, actual, lower, upper, exclusiveUpper, error, units, status }))
+      .sort((a, b) => a.id.localeCompare(b.id)) });
+}
+function validateGoalDependencies(fit: RestorationFitReport, spec: RestorationSpec) {
+  const goal = fit.goal;
+  if (!goal) return;
+  if (!fit.quality || !fit.gingiva) fail('A goal report requires its selected quality and gingiva measurements.');
+  unique(fit.after.surfaces.map(surface => surface.id), 'goal fitting target');
+  const targets = Object.keys(goal.targetGaps);
+  if (targets.length !== fit.after.surfaces.length || fit.after.surfaces.some(surface => goal.targetGaps[surface.id] !== surface.targetGap)) {
+    fail('Goal target gaps do not match the selected fitting measurements.');
+  }
+  if (goal.emergence) {
+    const tissueTargets = fit.after.surfaces.filter(surface => surface.role === 'tissue').map(surface => restorationFeedbackTargetId(surface.id));
+    unique(goal.emergence.map(item => item.target), 'pilar emergence target');
+    if (goal.emergence.length !== tissueTargets.length || goal.emergence.some(item => !tissueTargets.includes(item.target))) {
+      fail('Goal pilar emergence targets do not match the selected tissue measurements.');
+    }
+  }
+  for (const [key, [low, high]] of Object.entries(goal.bounds)) {
+    const [component, field, extra] = key.split('.');
+    const values = spec.parameters[component as keyof typeof spec.parameters];
+    const selected = key === 'cervicalScale' || key === 'occlusalScale' ? spec.contour?.[key] ?? 1
+      : !extra && values && Object.hasOwn(values, field) ? values[field as keyof typeof values] : undefined;
+    if (selected === undefined || !Number.isFinite(selected) || low > high) fail('A goal parameter bound is invalid.');
+    // Search bounds constrain automatic proposals. An exact manual edit may be
+    // outside them and still retain its measured failures and original targets.
+    if ((selected < low || selected > high) && !(spec.editProvenance?.actor === 'manual' && (goal.termination === 'measurement-only' || goal.selectedAttempt === 0))) fail('The selected restoration parameter is outside its original goal bounds.');
+  }
+  if (fit.gingiva.requiredDepthIncrease !== null && goal.bounds['fixture.depth']
+    && fit.gingiva.requiredDepthIncrease > Math.max(0, goal.bounds['fixture.depth'][1] - spec.parameters.fixture.depth)) {
+    fail('The gingiva depth proposal exceeds the original goal bound.');
+  }
 }
 function restoreSpec(value: z.infer<typeof specSchema>): RestorationSpec {
   const spec: RestorationSpec = { ...value, crownShape: value.crownShape ? restoreShape(value.crownShape) : undefined };
@@ -590,11 +655,12 @@ export async function readPlanningSession(value: unknown, parts: ModelPart[]): P
     }
     unique(assembly.parts.map(part => part.component), 'assembly component');
     const spec = restoreSpec(specSchema.parse(remap(json(assembly.spec), ids, aliases)));
-    if (spec.draftIdentity && (!spec.siteEvidence || spec.siteEvidence.method !== 'bounded-gap'
-      || spec.siteEvidence.surface.partId !== spec.parentPartId)) fail('A draft concept requires its original bounded surface site.');
+    if (spec.draftIdentity && (!spec.siteEvidence || !['bounded-gap', 'distal-extension'].includes(spec.siteEvidence.method)
+      || spec.siteEvidence.surface.partId !== spec.parentPartId)) fail('A draft concept requires its original localized surface site.');
     if (spec.draftIdentity && draft?.prepared && !assembly.warnings.some(warning => warning.startsWith('STALE:'))) {
       const site = draft.prepared.sites.find(site => site.id === spec.draftIdentity!.siteId);
-      if (!site || site.partId !== spec.parentPartId || !site.anchor || site.anchor.face !== spec.siteEvidence!.surface.face
+      if (!site || (site.kind === 'distal-extension') !== (spec.siteEvidence!.method === 'distal-extension')
+        || site.partId !== spec.parentPartId || !site.anchor || site.anchor.face !== spec.siteEvidence!.surface.face
         || site.anchor.point.some((value, axis) => value !== spec.siteEvidence!.surface.point[axis])) fail('A draft concept no longer matches its originating surface site.');
     }
     if (assembly.candidateHistory && !assembly.fit) fail('Fitting history requires its measured fitting report.');
@@ -602,6 +668,23 @@ export async function readPlanningSession(value: unknown, parts: ModelPart[]): P
       const fit = assembly.fit;
       if (fit.candidates < 1 || (fit.bestCandidate !== undefined && fit.bestCandidate >= fit.candidates)
         || (fit.candidateAttempts !== undefined && (fit.candidateAttempts < fit.candidates || (fit.invalidCandidates ?? 0) > fit.candidateAttempts - fit.candidates))) fail('Fitting attempt counts or selected candidate are invalid.');
+      if (fit.relationships) {
+        const rows = fit.relationships.relationships, targets = fit.after.surfaces.filter(surface => surface.role === 'adjacent');
+        const expected = ['fixture-to-abutment', 'abutment-to-crown', 'fixture-to-crown', ...targets.flatMap(target => ['fixture', 'abutment'].map(kind => `${kind}-to-adjacent:${target.id}`))];
+        if (rows.length !== expected.length || expected.some(id => !rows.some(row => row.id === id))) fail('Component relationship targets do not match the fitted assembly.');
+        for (const row of rows) {
+          const target = targets.find(target => target.id === row.targetId);
+          if (row.id !== `${row.source}-to-${row.target}${row.target === 'adjacent' ? `:${row.targetId}` : ''}`
+            || row.sourceTriangles !== assembly.parts.find(part => part.component === row.source)?.triangles
+            || (row.target === 'adjacent' ? !target || row.targetTriangles !== target.targetTriangles || row.side !== target.side
+              : row.targetId !== row.target || row.targetTriangles !== assembly.parts.find(part => part.component === row.target)?.triangles)) fail('Component relationship geometry dependencies are invalid.');
+        }
+        for (const item of fit.relationships.interfaces) {
+          const platform = item.id === 'fixture-platform', plane = platform ? fit.referencePlanes.fixturePlatform : fit.referencePlanes.crownBase;
+          if (item.source !== (platform ? 'fixture' : 'abutment') || item.target !== (platform ? 'abutment' : 'crown')
+            || JSON.stringify(item.nominalOrigin) !== JSON.stringify(plane.origin) || JSON.stringify(item.nominalNormal) !== JSON.stringify(plane.normal)) fail('Component interface datum is stale.');
+        }
+      }
     }
     if (assembly.fit && assembly.candidateHistory) {
       const history = assembly.candidateHistory, chosen = history.filter(item => item.accepted).at(-1);
@@ -640,6 +723,10 @@ export async function readPlanningSession(value: unknown, parts: ModelPart[]): P
         const sourceKey = target.id.split(':')[0], source = byKey.get(sourceKey);
         if (!source || !target.id.includes(':') || !['upper', 'lower'].includes(source.role ?? '')
           || (target.role === 'antagonist' ? source.role === parent.role : source.role !== parent.role)) fail('A fitting target source dependency is missing or has an incompatible role.');
+        if (assembly.fit?.goal && target.role === 'tissue' && (target.sourceComponents?.length !== 1 || target.sourceComponents[0] !== 'crown')) {
+          fail('Goal tissue measurements require an explicit crown-only source scope.');
+        }
+        if (assembly.fit?.goal && assembly.fit.goal.targetGaps[target.id] !== target.targetGap) fail('Goal target gaps differ from the fitting history.');
       }
     }
     const meshes: ModelPart[] = [];
@@ -654,16 +741,55 @@ export async function readPlanningSession(value: unknown, parts: ModelPart[]): P
       if (mesh.dimensions.some((dimension, axis) => Math.abs(dimension - (high[axis] - low[axis])) > 1e-5 * Math.max(1, dimension))) fail('Component dimensions are stale for their geometry.');
       meshes.push({ id: mesh.id, name: mesh.name, fileName: mesh.fileName, positions, normals, triangles: mesh.triangles, vertices: mesh.vertices, dimensions: mesh.dimensions, closed: mesh.closed, visible: mesh.visible, role: 'model', offset: [0, 0, 0], rotation: [0, 0, 0], pose: mesh.fileToWorkspace, presentationColor: mesh.presentationColor, presentationRoughness: mesh.presentationRoughness, restoration: { assemblyId: assembly.id, component: mesh.component, parentPartId: parent.id } });
     }
+    // A hash binds stored bytes to themselves, not to editable construction
+    // controls. Verify the current spec too, so a display-only edit cannot
+    // unexpectedly restore a different cervical contour or component shape.
+    const constructed = generateRestoration(spec);
+    for (const expected of constructed) {
+      const saved = meshes.find(mesh => mesh.restoration?.component === expected.component);
+      if (!saved || saved.positions.length !== expected.positions.length || saved.positions.some((value, index) => value !== expected.positions[index])) {
+        fail('Saved component geometry does not match its restoration construction parameters or contour.');
+      }
+    }
     const fit = assembly.fit ? restoreFit(fitReport.parse(remap(json(assembly.fit), ids, aliases))) : undefined;
     const candidateHistory = assembly.candidateHistory ? z.array(historyEntry).max(128).parse(remap(json(assembly.candidateHistory), ids, aliases)) : undefined;
+    let currentQuality: RestorationQualityReport | undefined;
     if (fit?.quality) {
-      const current = evaluateRestorationQuality({ spec, components: meshes.map(mesh => ({ ...mesh, component: mesh.restoration!.component, closed: mesh.closed === true })), measurement: fit.after, context: spec.qualityContext, tolerances: fit.quality.final.tolerances });
+      const components = meshes.map(mesh => ({ ...mesh, component: mesh.restoration!.component, closed: mesh.closed === true }));
+      let current = evaluateRestorationQuality({ spec, components, measurement: fit.after, context: spec.qualityContext, tolerances: fit.quality.final.tolerances });
+      const savedSupport = fit.quality.final.criteria.find(row => row.id === 'component-support');
+      if (savedSupport && savedSupport.measured.supportSamples !== null) {
+        const freshSupport = await measurePilarCrownSupport({ spec, components });
+        if (savedSupport.measured.unknownSamples! > 0) {
+          // A completed read-time audit may resolve formerly unknown rays. Keep
+          // the saved conservative evidence; loading is not an explicit recheck.
+          const saved = savedSupport.measured, fresh = freshSupport.measured;
+          const region = crownSupportRegion(spec, components.find(mesh => mesh.component === 'abutment')!);
+          // Before crown verification ends, a timeout retains only the region
+          // tolerance and no known witnesses. It has made no clearance claim.
+          const earlyUnknown = saved.enclosedSamples === 0 && saved.outsideSamples === 0 && saved.numericTolerance === region.numericTolerance;
+          if (['supportSamples', 'seatingDatum', 'supportTop'].some(key => saved[key] !== fresh[key])
+            || saved.numericTolerance !== fresh.numericTolerance && !earlyUnknown
+            || saved.enclosedSamples! > fresh.enclosedSamples! || saved.outsideSamples! > fresh.outsideSamples!
+            || saved.unknownSamples! < fresh.unknownSamples!
+            || saved.sampledMinInternalClearance !== null && (fresh.sampledMinInternalClearance === null || saved.sampledMinInternalClearance < fresh.sampledMinInternalClearance)
+            || saved.sampledMaxOutsideDistance !== null && (fresh.sampledMaxOutsideDistance === null || saved.sampledMaxOutsideDistance > fresh.sampledMaxOutsideDistance)) {
+            fail('Saved incomplete support evidence is not conservative for the current verified geometry.');
+          }
+          current = applyPilarCrownSupport(current, savedSupport);
+        } else current = applyPilarCrownSupport(current, freshSupport);
+      }
+      currentQuality = current;
       // Re-evaluate the hash-verified geometry. Historical prose may contain old
       // source IDs, but a saved verdict or measured extent cannot be trusted.
-      if (current.status !== fit.quality.final.status || current.criteria.some(criterion => {
+      const historicalCriteria = current.criteria.filter(row => row.id !== 'component-support' || savedSupport);
+      const historicalStatus = historicalCriteria.some(row => row.status === 'fail') ? 'fail'
+        : historicalCriteria.every(row => row.status === 'pass') ? 'pass' : 'unknown';
+      const inconsistent = historicalCriteria.find(criterion => {
         const saved = fit.quality!.final.criteria.find(item => item.id === criterion.id);
         return !saved || saved.status !== criterion.status || JSON.stringify(saved.measured) !== JSON.stringify(criterion.measured);
-      })) fail('Saved quality checks do not match the current verified geometry and evidence.');
+      });
+      if (historicalStatus !== fit.quality.final.status || inconsistent) fail(`Saved quality checks do not match the current verified geometry and evidence (${inconsistent?.id ?? 'overall status'}).`);
       // Always replace the current extension, including legacy saves without it.
       // Other candidates and previous revisions retain their historical reports.
       const guardrails = restorationGuardrailsSchema.parse(current.guardrails);
@@ -675,7 +801,51 @@ export async function readPlanningSession(value: unknown, parts: ModelPart[]): P
         fit.quality.initial = { ...fit.quality.initial, guardrails };
       }
     }
-    assemblies.push({ ...assembly, warnings: legacyAppearance ? [...assembly.warnings.filter(warning => !warning.startsWith('STALE:')), 'STALE: Legacy case did not bind colour/UV/tissue evidence. Historical geometry retained; prepare current evidence before re-evaluation.'] : assembly.warnings, spec, parts: meshes,
+    if (fit?.gingiva && fit.gingiva.samples > 0) {
+      const fixture = meshes.find(mesh => mesh.restoration?.component === 'fixture')!;
+      const emitted = new Set<string>();
+      for (let i = 0; i < fixture.positions.length; i += 3) emitted.add(`${fixture.positions[i]},${fixture.positions[i + 1]},${fixture.positions[i + 2]}`);
+      const samples = fit.gingiva.sampleMeasurements;
+      if (samples.length !== emitted.size || samples.some(sample => !emitted.delete(sample.point.join(','))) || emitted.size) {
+        fail('Gingiva samples do not match the hash-verified emitted fixture vertices.');
+      }
+      if (samples.some(sample => sample.status === 'known' && sample.numericTolerance >= Math.min(spec.parameters.fixture.radius, spec.parameters.fixture.length) / 64)) {
+        fail('Gingiva samples exceed the fixture numerical-resolution limit.');
+      }
+    }
+    const pilarGingiva = fit?.abutmentGingiva ?? fit?.relationships?.abutmentGingiva;
+    if (pilarGingiva && pilarGingiva.samples > 0) {
+      const pilar = meshes.find(mesh => mesh.restoration?.component === 'abutment')!;
+      const emitted = new Set<string>();
+      for (let i = 0; i < pilar.positions.length; i += 3) emitted.add(`${pilar.positions[i]},${pilar.positions[i + 1]},${pilar.positions[i + 2]}`);
+      if (pilarGingiva.sampleMeasurements.length !== emitted.size
+        || pilarGingiva.sampleMeasurements.some(sample => !emitted.delete(sample.point.join(','))) || emitted.size) {
+        fail('Pilar gingiva samples do not match the hash-verified emitted abutment vertices.');
+      }
+    }
+    let needsAdditionalGoalAudit = false;
+    if (fit?.goal) {
+      validateGoalDependencies(fit, spec);
+      // This checks consistency with saved target measurements and the rebuilt,
+      // hash-verified components. It does not remeasure raw patient tissue or
+      // turn saved directional samples into independent clinical proof.
+      let current = restorationGoalSnapshot({ spec, components: constructed, report: { ...fit, quality: { ...fit.quality!, final: currentQuality! } }, history: candidateHistory ?? [] }, fit.gingiva!, fit.goal.contract);
+      const contract = fit.goal.contract.rows;
+      const additional = current.rows.filter(row => !contract.some(original => original.id === row.id));
+      if (additional.length && additional.every(row => ['space-occupancy.mesiodistal', 'space-occupancy.vertical', 'abutment-gingiva', 'component-support.pilar-enclosure'].includes(row.id))) {
+        // Validate historical checks as recorded. Do not invent past measurements
+        // or silently rebase their targets when a newer audit adds requirements.
+        needsAdditionalGoalAudit = true;
+        const scale = Math.max(Number.MIN_VALUE, contract.find(row => row.id === 'relative-width')?.actual
+          ?? fit.quality!.initial.crownExtents?.mesiodistal ?? spec.parameters.crown.width);
+        current = summarizeGoalRows(current.rows.filter(row => !additional.includes(row)), scale);
+      }
+      if (goalSnapshotEvidence(current) !== goalSnapshotEvidence(fit.goal.after)) fail('Saved goal requirements do not match the current verified geometry and report evidence.');
+      if (contract.length !== current.rows.length || current.rows.some(row => !contract.some(original => original.id === row.id && original.units === row.units && original.priority === row.priority))) {
+        fail('The goal contract does not identify the current requirements.');
+      }
+    }
+    assemblies.push({ ...assembly, warnings: [...(legacyAppearance ? [...assembly.warnings.filter(warning => !warning.startsWith('STALE:')), 'STALE: Legacy case did not bind colour/UV/tissue evidence. Historical geometry retained; prepare current evidence before re-evaluation.'] : assembly.warnings), ...(needsAdditionalGoalAudit ? ['Earlier geometry checks retained. Recheck geometry to add current space and pilar requirements without changing the original targets.'] : [])], spec, parts: meshes,
       previousVersions: assembly.previousVersions?.map(version => ({ ...version, spec: restoreSpec(specSchema.parse(remap(json(version.spec), ids, aliases))), fit: version.fit ? restoreFit(fitReport.parse(remap(json(version.fit), ids, aliases))) : undefined, ...(version.candidateHistory ? { candidateHistory: z.array(historyEntry).max(128).parse(remap(json(version.candidateHistory), ids, aliases)) } : {}) })),
       fit,
       ...(candidateHistory ? { candidateHistory } : {}),

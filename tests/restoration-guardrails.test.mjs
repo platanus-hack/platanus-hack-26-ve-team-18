@@ -153,6 +153,19 @@ test('manual colour and contour edits cannot confirm tooth identity, shade or cl
   assert.equal(shade.status, 'unknown');
 });
 
+test('legacy tissue intersections retain unknown crossing classification instead of a fabricated zero', () => {
+  const s = spec(), measurement = { score: 0, objectiveScore: 0, morphologyPenalty: 0, surfaces: [{ id: 'legacy-tissue', role: 'tissue', targetGap: 0,
+    weight: 1, targetTriangles: 2, samples: 2, sampledMinDistance: 0, sampledRmsGapError: 0, nearSamples: 2,
+    intersectingTriangles: 2, intersectionTestedTriangles: 2, intersectionComplete: true }] };
+  const report = evaluate(s, { measurement }), cervical = issue(report, 'cervical-emergence');
+  assert.equal(cervical.actual.tissueCrossingObserved, null);
+  assert.equal(cervical.actual.unclassifiedTissueIntersectingTriangles, 2);
+  assert.match(cervical.summary, /unclassified/);
+  assert.equal(cervical.status, 'unknown');
+  assert.equal(report.criteria.find(item => item.id === 'interference').status, 'fail');
+  assert.equal(restorationQualitySchema.safeParse(report).success, true);
+});
+
 test('schema deliberately reads legacy v1 and new reports but rejects automatic or fabricated clinical passes', () => {
   const report = evaluate(), legacy = structuredClone(report);
   delete legacy.guardrails;
@@ -167,4 +180,30 @@ test('schema deliberately reads legacy v1 and new reports but rejects automatic 
   const missing = structuredClone(report.guardrails);
   missing.issues[6] = missing.issues[5];
   assert.equal(restorationGuardrailsSchema.safeParse(missing).success, false);
+});
+
+test('schema rejects fabricated clinical fields, invalid clinical targets and contradictory dimensions', () => {
+  const report = evaluate();
+  for (const [id, key, value] of [['shade', 'shadeMatch', true], ['anatomy', 'toothIdentityReviewed', true],
+    ['subcrestal-placement', 'measuredSubcrestalDepthMm', 1.5], ['adjacent-root-clearance', 'verifiedMmPerUnit', 1], ['anatomy', 'identityConfirmed', true]]) {
+    const changed = structuredClone(report);
+    issue(changed, id).actual[key] = value;
+    assert.equal(restorationQualitySchema.safeParse(changed).success, false, `${id}.${key}`);
+  }
+  for (const target of [{ value: -1, units: 'mm', provenance: 'unconfirmed-case-feedback' },
+    { value: 1.5, units: 'file units (u)', provenance: 'unconfirmed-case-feedback' },
+    { value: 1.5, units: 'mm', provenance: 'engineering-prototype' }, { value: 1.5, units: 'mm', provenance: 'not-established' }]) {
+    const changed = structuredClone(report);
+    Object.assign(issue(changed, 'subcrestal-placement').target, target);
+    assert.equal(restorationQualitySchema.safeParse(changed).success, false, JSON.stringify(target));
+  }
+  for (const mutate of [
+    value => { value.guardrails.componentExtents[0].extents.base = 100; },
+    value => { value.guardrails.componentExtents[1].extents.occlusal = 99; },
+    value => { issue(value, 'dimensions').actual['crown.mesiodistal'] = 99; },
+    value => { value.crownExtents.mesiodistal = 99; },
+  ]) {
+    const changed = structuredClone(report); mutate(changed);
+    assert.equal(restorationQualitySchema.safeParse(changed).success, false);
+  }
 });

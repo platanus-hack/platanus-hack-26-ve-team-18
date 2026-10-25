@@ -34,7 +34,7 @@ test('every template budgets emitted cusp top plus abutment within provisional h
     assert.ok(b[0][0] >= -width / 2 && b[0][1] <= width / 2, `FDI ${fdi}: actual footprint ${b[0]}`);
     assert.ok((b[0][1] - b[0][0]) / width > .9, `FDI ${fdi}: crown still occupies measured gap`);
     assert.equal(spec.parameters.crown.cuspHeight, 0, 'complete template anatomy needs no extra initial relief');
-    assert.equal(spec.parameters.fixture.depth, 0); assert.equal(spec.parameters.fixture.length, 5);
+    assert.equal(spec.parameters.fixture.depth, spec.parameters.fixture.radius * .5); assert.equal(spec.parameters.fixture.length, 5);
     assert.match(spec.source, /provisionally; bite pose is unverified/);
     assert.deepEqual(input, before);
   }

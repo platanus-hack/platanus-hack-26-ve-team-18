@@ -4,6 +4,7 @@ import {
   CROWN_THETA, CROWN_WALL, CROWN_RINGS,
   templateShape, donorShape, validateCrownShape, buildCrownMesh, placeCrown, auditCrownMesh, cloneShape,
 } from '../src/crown-anatomy.ts';
+import { generateRestoration } from '../src/restoration-geometry.ts';
 
 const identity = () => ({ origin: [0, 0, 0], mesial: [1, 0, 0], buccal: [0, 1, 0], occlusal: [0, 0, 1] });
 const info = { arch: 'upper', digit: 6, donorFdi: 16, donorPartId: 'synthetic-donor', donorToothId: 1, mirrored: false };
@@ -174,6 +175,7 @@ function shuffledSurface(input) {
 }
 
 test('all arches and digits retain deterministic single-shell crown topology and zones', () => {
+  const reference = buildCrownMesh(templateShape('upper', 6), [5, 4, 3]);
   for (const arch of ['upper', 'lower']) for (let digit = 1; digit <= 8; digit++) {
     const shape = templateShape(arch, digit), copy = cloneShape(shape);
     validateCrownShape(shape);
@@ -184,6 +186,9 @@ test('all arches and digits retain deterministic single-shell crown topology and
     integrity(mesh);
     assert.equal(mesh.vertexCount, (CROWN_WALL + CROWN_RINGS) * CROWN_THETA + 2);
     assert.equal(mesh.indices.length / 3, mesh.vertexCount * 2 - 4);
+    // Fitting stores vertex offsets and indexes emitted triangle corners.
+    assert.deepEqual(mesh.indices, reference.indices);
+    assert.deepEqual(mesh.zones, reference.zones);
     assert.equal(mesh.zones.margin.length, CROWN_THETA);
     assert.equal(mesh.zones.occlusal.length, CROWN_RINGS * CROWN_THETA + 1);
     assert.ok(mesh.zones.mesial.every(id => mesh.vertices[id * 3] > 0));
@@ -194,6 +199,108 @@ test('all arches and digits retain deterministic single-shell crown topology and
     assert.ok(Math.max(...tableHeights) - Math.min(...tableHeights) > 0.03);
     assert.ok(Math.min(shape.apex, ...tableHeights, ...shape.rimZ) > 0);
     close(Math.max(shape.apex, ...tableHeights, ...shape.rimZ), 1, 1e-7);
+  }
+});
+
+test('posterior contacts have a distinct convexity above the facial contour without a proximal seam', () => {
+  for (const arch of ['upper', 'lower']) for (const digit of [4, 5, 6, 7, 8]) {
+    const mesh = buildCrownMesh(templateShape(arch, digit), [2, 2, 1]);
+    const profile = angle => Array.from({ length: CROWN_WALL }, (_, j) => point(mesh.vertices, j * CROWN_THETA + angle));
+    const radius = p => Math.hypot(p[0], p[1]);
+    const widest = samples => samples.reduce((best, p) => radius(p) > radius(best) ? p : best);
+    const facial = widest(profile(CROWN_THETA / 4));
+    for (const angle of [0, CROWN_THETA / 2]) {
+      const samples = profile(angle), contact = widest(samples);
+      assert.ok(contact[2] > facial[2] + 0.2, `${arch} ${digit}: contact blended into the low facial bulge`);
+      assert.ok(radius(contact) > radius(samples[0]) + 0.15);
+      assert.ok(radius(contact) > radius(samples.at(-1)) + 0.04, 'Contact must turn inward toward the marginal ridge');
+      // Both proximal axes, including angular wraparound. A smooth profile
+      // has small second differences rather than a one-sided contour jump.
+      for (let j = 0; j < CROWN_WALL; j++) {
+        const at = a => radius(point(mesh.vertices, j * CROWN_THETA + (a + CROWN_THETA) % CROWN_THETA));
+        assert.ok(Math.abs(at(angle) - (at(angle - 1) + at(angle + 1)) / 2) < 0.003);
+      }
+    }
+  }
+});
+
+test('posterior proximal-to-buccal shoulders are defined but softened above the rounded neck', () => {
+  for (const arch of ['upper', 'lower']) for (const digit of [4, 5, 6, 7, 8]) {
+    const mesh = buildCrownMesh(templateShape(arch, digit), [2, 2, 1]);
+    // Turning angles on the emitted wall ring's XY outline. This tests the
+    // visible contour at normalized dimensions, not clinical line-angle values.
+    const turn = (level, angle) => {
+      const at = a => point(mesh.vertices, level * CROWN_THETA + (a + CROWN_THETA) % CROWN_THETA);
+      const a = at(angle - 1), b = at(angle), c = at(angle + 1);
+      const u = subtract(b, a), v = subtract(c, b);
+      return Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]) * 180 / Math.PI;
+    };
+    const contactLevel = Math.round((CROWN_WALL - 1) * 0.77);
+    for (const angle of [CROWN_THETA / 8, 3 * CROWN_THETA / 8]) {
+      assert.ok(turn(contactLevel, angle) > 5, `${arch} ${digit}: rounded-away buccal shoulder`);
+      assert.ok(turn(contactLevel, angle) > 1.3 * turn(0, angle));
+    }
+    for (let angle = 0; angle < CROWN_THETA; angle++) {
+      const change = turn(contactLevel, angle);
+      assert.ok(change > 0 && change < 12, `${arch} ${digit}: sharp corner or contact dimple at ${angle}`);
+    }
+  }
+});
+
+test('posterior marginal ridges turn from the outer wall into the occlusal table without a rim trench', () => {
+  for (const arch of ['upper', 'lower']) for (const digit of [4, 5, 6, 7, 8]) {
+    const { positions } = placeCrown(buildCrownMesh(templateShape(arch, digit), [2, 2, 1]), identity());
+    for (const side of [-1, 1]) {
+      const at = x => surfaceHeightAt(positions, side * x, 0);
+      const rim = at(0.93), crest = at(0.8);
+      assert.ok(crest > rim + 0.02, `${arch} ${digit}: missing marginal ridge on side ${side}`);
+      assert.ok(crest > at(0.7) + 0.015, `${arch} ${digit}: ridge does not turn into the table`);
+      for (const x of [0.82, 0.86, 0.9]) assert.ok(at(x) >= rim, 'Peripheral trench between the wall and ridge');
+      assert.ok(at(0.9) - rim < 0.02, 'Abrupt rim-to-table step');
+    }
+  }
+});
+
+test('emitted posterior cusp slopes reach a scalloped exterior without an outer shelf or changed neck', () => {
+  for (const arch of ['upper', 'lower']) for (const digit of [4, 5, 6, 7, 8]) {
+    const shape = templateShape(arch, digit), mesh = buildCrownMesh(shape, [2, 2, 1]);
+    const { positions } = placeCrown(mesh, identity());
+    const at = (angle, rho) => surfaceHeightAt(positions,
+      mesh.vertices[((CROWN_WALL - 1) * CROWN_THETA + angle) * 3] * rho,
+      mesh.vertices[((CROWN_WALL - 1) * CROWN_THETA + angle) * 3 + 1] * rho);
+    // Heights come from emitted triangles just inside the exterior, rather
+    // than checking coefficients or the unbuilt rim controls. These are
+    // normalized regression bounds, not clinical crown-height proportions.
+    const exterior = Array.from({ length: CROWN_THETA / 4 }, (_, i) => at(i * 4, 0.98));
+    assert.ok(Math.max(...exterior) - Math.min(...exterior) > 0.1, `${arch} ${digit}: level peripheral band`);
+    for (const cusp of occlusalPeaks(mesh)) {
+      const angle = (Math.round(Math.atan2(cusp[1], cusp[0]) / (2 * Math.PI) * CROWN_THETA) + CROWN_THETA) % CROWN_THETA;
+      const profile = [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.94, 0.98].map(rho => at(angle, rho));
+      assert.ok(profile[0] > profile.at(-1) + 0.03, `${arch} ${digit}: cusp volume does not extend to its outer slope`);
+      for (let i = 1; i < profile.length; i++) {
+        assert.ok(profile[i] <= profile[i - 1] + 0.002, `${arch} ${digit}: extra peripheral hump or moat`);
+        assert.ok(profile[i - 1] - profile[i] < 0.05, `${arch} ${digit}: abrupt cusp-to-wall step`);
+      }
+    }
+    for (const id of mesh.zones.margin) close(Math.hypot(mesh.vertices[id * 3], mesh.vertices[id * 3 + 1]), 0.78, 2e-7);
+    assert.match(shape.source.provenance, /Scalloped.*procedural morphology hypothesis.*not.*validated/);
+  }
+});
+
+test('emitted lower-molar central fissures have a continuous varying course instead of a straight cross', () => {
+  for (const digit of [6, 7, 8]) {
+    const { positions } = placeCrown(buildCrownMesh(templateShape('lower', digit), [2, 2, 1]), identity());
+    const troughs = [-0.55, -0.35, 0.35, 0.55].map(x => {
+      const samples = Array.from({ length: 29 }, (_, i) => ({ y: (i - 14) * 0.01, z: surfaceHeightAt(positions, x, (i - 14) * 0.01) }));
+      const trough = samples.reduce((a, b) => a.z < b.z ? a : b);
+      // A course must still be a depression beside the unequal cusp volumes;
+      // moving an arbitrary line on an otherwise flat surface cannot pass.
+      for (const side of [-1, 1]) assert.ok(surfaceHeightAt(positions, x, trough.y + side * 0.09) > trough.z + 0.015);
+      return trough.y;
+    });
+    assert.ok(troughs[0] < -0.015 && troughs.at(-1) > 0.015);
+    assert.ok(Math.max(...troughs) - Math.min(...troughs) > 0.045, `lower ${digit}: straight trench`);
+    assert.ok(troughs.slice(1).every((y, i) => Math.abs(y - troughs[i]) < 0.06), `lower ${digit}: disconnected groove course`);
   }
 });
 
@@ -281,6 +388,75 @@ test('premolar fallbacks preserve two cusps while the lower first premolar narro
   assert.match(templateShape('lower', 5).source.provenance, /variable.*two-cusp hypothesis.*three-cusp variant/);
 });
 
+test('new posterior templates retain one common relief datum through independent cloning', () => {
+  for (const arch of ['upper', 'lower']) for (const digit of [4, 5, 6, 7, 8]) {
+    const shape = templateShape(arch, digit), copy = cloneShape(shape), transferred = structuredClone(shape);
+    assert.equal(shape.reliefDatum, Math.max(...shape.rimZ));
+    assert.equal(copy.reliefDatum, shape.reliefDatum);
+    assert.equal(transferred.reliefDatum, shape.reliefDatum);
+    validateCrownShape(copy);
+    validateCrownShape(transferred);
+    assert.notEqual(copy.occlusal.buffer, shape.occlusal.buffer);
+    assert.notEqual(copy.rimZ.buffer, shape.rimZ.buffer);
+    assert.deepEqual(buildCrownMesh(copy, [2, 2, 1]), buildCrownMesh(shape, [2, 2, 1]));
+  }
+});
+
+test('actual generated posterior controls preserve every interior peak and central continuity', () => {
+  // Includes the reported FDI 14 scale=1.5/relief=0 and FDI 34
+  // scale=1/relief=.5 regressions. These synthetic file-unit control bounds
+  // exercise the complete generator, not a duplicate of its relief formula.
+  for (const fdi of [14, 15, 16, 17, 18, 34, 35, 36, 37, 38]) {
+    let baseline;
+    for (const cuspHeight of [0, 0.5, 1.1]) for (const occlusalScale of [0.5, 1, 1.5]) {
+      const anatomy = fdi % 10 < 6 ? 'premolar' : 'molar';
+      const spec = { version: 'implant-assembly/v1', fdi, parentPartId: 'synthetic-control',
+        frame: { origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], up: [0, 0, 1] },
+        parameters: { fixture: { radius: 1.1, length: 5, depth: 0.4, taper: 0.3 },
+          abutment: { radius: 0.8, height: 2.1, emergenceRadius: 1.3, angleX: 0, angleY: 0 },
+          crown: { width: 5.2, depth: 4.6, height: 3.5, cuspHeight, rotation: 0 } },
+        anatomy, contour: { cervicalScale: 1, occlusalScale }, provenance: 'hypothesized', units: 'file units (u)',
+        source: 'Synthetic generated cusp-count regression; no patient anatomy or clinical dimensions.' };
+      const snapshot = structuredClone(spec), crown = generateRestoration(spec).find(mesh => mesh.component === 'crown');
+      assert.deepEqual(spec, snapshot, 'Requested controls must remain exact.');
+      const mesh = emittedIntegrity(crown);
+      if (!baseline) {
+        const reference = structuredClone(spec);
+        reference.parameters.crown.cuspHeight = 0;
+        reference.contour.occlusalScale = 1;
+        baseline = emittedIntegrity(generateRestoration(reference).find(mesh => mesh.component === 'crown'));
+      }
+      assert.deepEqual(mesh.indices, baseline.indices, 'Controls must preserve emitted topology.');
+      // A common monotone elevation map preserves every mesh edge's height
+      // order, including the complete centre-vertex fan. Angular rim maps can
+      // reverse these orders and create spikes even when cusp locations pass.
+      // Ignore only source-coordinate Float32 rounding, not a geometry-sized
+      // prominence or spatial region. The reported central spikes were .2 u.
+      const rounding = spec.parameters.crown.height * 2e-6;
+      for (let i = 0; i < mesh.indices.length; i += 3) for (let c = 0; c < 3; c++) {
+        const a = mesh.indices[i + c] * 3, b = mesh.indices[i + (c + 1) % 3] * 3;
+        const before = baseline.vertices[a + 2] - baseline.vertices[b + 2];
+        const after = mesh.vertices[a + 2] - mesh.vertices[b + 2];
+        if (Math.abs(before) > rounding) assert.ok(before * after > 0, `FDI ${fdi}: relief reversed an emitted edge elevation`);
+        else if (before === 0) assert.ok(Math.abs(after) <= rounding, `FDI ${fdi}: relief split an equal-height edge`);
+      }
+      // Normalize the welded emitted coordinates only for the existing cusp
+      // metric. Count every strict crest, including close or low split peaks.
+      for (let i = 0; i < mesh.vertices.length; i += 3) {
+        mesh.vertices[i] *= 2 / spec.parameters.crown.width;
+        mesh.vertices[i + 1] *= 2 / spec.parameters.crown.depth;
+        mesh.vertices[i + 2] = (mesh.vertices[i + 2] - spec.parameters.abutment.height) / spec.parameters.crown.height;
+      }
+      const peaks = occlusalPeaks(mesh);
+      assert.equal(peaks.length, anatomy === 'premolar' ? 2 : fdi === 36 ? 5 : 4,
+        `FDI ${fdi}, additional relief ${cuspHeight}, occlusal scale ${occlusalScale}: extra or missing emitted cusp`);
+      assert.equal(peaks.filter(p => Math.hypot(p[0], p[1]) < 0.3).length, 0,
+        `FDI ${fdi}, additional relief ${cuspHeight}, occlusal scale ${occlusalScale}: artificial central crest`);
+      if (anatomy === 'premolar') for (const side of [-1, 1]) assert.ok(peaks.some(p => p[1] * side > 0.3 && Math.abs(p[0]) < 0.1), 'A premolar crest split away from its cusp axis.');
+    }
+  }
+});
+
 test('placement preserves reflected and oblique rigid frames; normals match emitted Float32 triangles', () => {
   const mesh = buildCrownMesh(templateShape('lower', 6), [5, 4, 3]);
   const frames = [identity(), { ...identity(), mesial: [-1, 0, 0] },
@@ -337,7 +513,14 @@ test('donor rim is invariant to selected face order, triangle order, winding and
     close(first.rimZ[a] * first.dims[2], 1, 1e-6);
     close(first.rim[a], first.wall[(CROWN_WALL - 1) * CROWN_THETA + a], 0);
   }
-  integrity(buildCrownMesh(first, first.dims));
+  const mesh = buildCrownMesh(first, first.dims);
+  integrity(mesh);
+  // A measured cylindrical donor must not inherit procedural contact bulges,
+  // line angles or cervical rounding, even when it shares the fitting topology.
+  for (let i = 0; i < CROWN_WALL * CROWN_THETA; i++) {
+    const p = point(mesh.vertices, i);
+    close(Math.hypot(p[0], p[1]), 1, 1e-6);
+  }
 });
 
 test('donor selection records original sorted faces and independent source axes for reproducible extraction', () => {

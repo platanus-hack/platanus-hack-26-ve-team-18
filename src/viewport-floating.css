@@ -1,0 +1,14 @@
+.viewport-floating-controls {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  max-height: var(--viewport-floating-max-height, calc(100% - 120px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  visibility: hidden;
+}
+.viewport-floating-controls[data-anchor] { visibility: visible; }
+.viewport-bottom-controls { display: contents; }

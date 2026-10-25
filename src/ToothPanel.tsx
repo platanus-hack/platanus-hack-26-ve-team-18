@@ -83,6 +83,7 @@ export function ToothPanel(props: ToothPanelProps) {
       <span><i className="tooth-key tooth-key--assigned" />Assigned triangles</span>
       <span><b>P</b>Present</span><span><b>×</b>Missing</span><span><b>/</b>Not scanned</span><span><b>?</b>Unreviewed</span>
     </div>
+    <p className="tooth-hint">3D indicators use FDI numbers when an identity is available. “draft” marks an unreviewed identity; ? marks uncertainty. C IDs mark regions with unknown FDI. A reviewed mapping does not confirm a clinical finding.</p>
 
     <div className="tooth-workbench">
       {props.viewport && <div className="tooth-scan">{props.viewport}</div>}

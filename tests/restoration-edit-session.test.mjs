@@ -86,9 +86,28 @@ function freshGuardrails(assembly) {
 function staleGuardrails(quality, marker) {
   quality.guardrails = copy(quality.guardrails);
   quality.guardrails.componentExtents[0].extents.mesiodistal += 100;
-  quality.guardrails.issues.find(issue => issue.id === 'subcrestal-placement').target.value = 99;
+  quality.guardrails.issues.find(issue => issue.id === 'dimensions').actual['fixture.mesiodistal'] = quality.guardrails.componentExtents[0].extents.mesiodistal;
+  const placement = quality.guardrails.issues.find(issue => issue.id === 'subcrestal-placement');
+  placement.target.value = 99;
+  placement.target.provenance = 'unconfirmed-case-feedback';
+  placement.actual.feedbackSource = 'Synthetic stale case feedback.';
   quality.guardrails.limits = [marker];
 }
+
+test('reopening rejects changed contour controls that no longer describe the saved mesh', async () => {
+  const input = await measuredFixture(), saved = copy(await createPlanningSession(input));
+  for (const change of [
+    spec => { spec.contour.cervicalScale = 1.5; },
+    spec => { spec.contour.occlusalScale = .5; },
+    spec => { spec.parameters.fixture.length += .1; },
+    spec => { spec.parameters.abutment.emergenceRadius += .1; },
+  ]) {
+    const file = copy(saved); change(file.assemblies[0].spec);
+    await assert.rejects(readPlanningSession(file, input.parts), /construction parameters|contour|stale|history/i);
+  }
+  const unchanged = await readPlanningSession(saved, input.parts);
+  assert.deepEqual(unchanged.assemblies[0].parts.map(part => part.positions), input.assemblies[0].parts.map(part => part.positions));
+});
 
 test('reopening replaces independently stale current guardrails without changing historical revisions', async () => {
   const input = await measuredFixture(), saved = copy(await createPlanningSession(input));

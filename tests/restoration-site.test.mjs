@@ -56,6 +56,7 @@ test('a reviewed missing implant site yields deterministic hypotheses without ch
   assert.deepEqual(first, infer(input));
   assert.deepEqual(input, before);
   assert.equal(first.fdi, 36);
+  assert.equal(first.componentDesign, 'nested-support/v1');
   assert.equal(first.parentPartId, input.part.id);
   closeVector(first.frame.origin, [0, 0, 0], 1e-12);
   assert.equal(first.provenance, 'hypothesized');

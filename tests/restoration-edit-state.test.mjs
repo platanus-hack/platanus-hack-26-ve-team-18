@@ -6,7 +6,9 @@ import { Matrix4 } from 'three';
 import { partMatrix } from '../src/pose.ts';
 import { emptyToothCase } from '../src/tooth-session.ts';
 import { fitRestoration } from '../src/restoration-fitting.ts';
+import { fitRestorationToGoals } from '../src/restoration-goal-fitting.ts';
 import { fittingSurfaces } from '../src/workflow-geometry.ts';
+import { crownEnamel } from '../src/crown-enamel.ts';
 
 import { restorationEditRevision } from '../src/restoration-edit.ts';
 
@@ -102,15 +104,15 @@ async function harness(t) {
   h.render(); t.after(() => h.dispose()); return h;
 }
 const microtasks = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
-async function replyFit(worker) {
+async function replyFit(worker, surfaces = []) {
   assert.equal(worker.request.type, 'prepare-fit');
   assert.ok(worker.url.endsWith('/restoration-fit.worker.ts'));
   assert.ok(worker.request.spec);
   assert.ok(Array.isArray(worker.request.parts));
   assert.ok(worker.request.options.maxCandidates > 0);
-  // Geometry/result fixtures use the real executor with no audit targets; this
-  // scheduler suite controls lifecycle, while fitter tests cover measurements.
-  const result = await fitRestoration({ spec: worker.request.spec, surfaces: [] });
+  // Geometry/result fixtures use the real executor, usually without targets;
+  // this suite controls lifecycle, while fitter tests cover measurements.
+  const result = await fitRestorationToGoals({ spec: worker.request.spec, surfaces, options: { maxCandidates: 1 }, goalContract: worker.request.goalContract });
   worker.reply({ type: 'result', result });
   return result;
 }
@@ -125,11 +127,95 @@ function retainedStale(h, id) {
   assert.doesNotThrow(() => h.api.exportPart(assembly.parts[0].id), 'Stale part exports must stop before touching the browser download API.');
   return assembly;
 }
-async function createAssembly(h, spec = concept(), proposals = []) {
+
+test('a rejected agent candidate never replaces geometry, revision or history; manual inspection stays available', async t => {
+  const h = await harness(t), original = await createAssembly(h);
+  const change = { reason: 'Synthetic oversized pilar regression.', parameters: { abutment: { radius: 8 } } };
+  const pending = h.api.edit(original.id, change, { actor: 'agent', expectedRevision: restorationEditRevision(original) });
+  const rejected = assert.rejects(pending, error => error.name === 'RestorationEditRejected' && error.candidate.quality.status === 'fail');
+  await replyFit(h.takeWorker()); await rejected; h.render();
+  assert.equal(h.api.assemblies[0], original);
+  assert.equal(restorationEditRevision(h.api.assemblies[0]), restorationEditRevision(original));
+  assert.equal(h.api.assemblies[0].previousVersions, original.previousVersions);
+  const manual = h.api.edit(original.id, change, { actor: 'manual' });
+  await replyFit(h.takeWorker()); const inspected = await manual; h.render();
+  assert.equal(inspected.spec.parameters.abutment.radius, 8);
+  assert.equal(inspected.fit.quality.final.status, 'fail');
+  assert.equal(inspected.previousVersions.length, 1);
+});
+
+test('legacy assemblies are measured before agent edits without mutating their baseline', async t => {
+  const h = await harness(t), original = await createAssembly(h);
+  delete original.fit;
+  const pending = h.api.edit(original.id, { reason: 'Legacy candidate requiring baseline.', parameters: { abutment: { radius: 8 } } }, { actor: 'agent' });
+  const rejected = assert.rejects(pending, error => error.name === 'RestorationEditRejected');
+  const baselineWorker = h.takeWorker();
+  assert.equal(baselineWorker.request.spec.parameters.abutment.radius, original.spec.parameters.abutment.radius);
+  await replyFit(baselineWorker); await microtasks();
+  assert.equal(original.fit, undefined);
+  const candidateWorker = h.takeWorker();
+  assert.equal(candidateWorker.request.spec.parameters.abutment.radius, 8);
+  await replyFit(candidateWorker); await rejected; h.render();
+  assert.equal(h.api.assemblies[0], original);
+  assert.equal(original.fit, undefined);
+});
+
+test('an out-of-bounds agent width is rejected atomically while the exact manual edit remains inspectable', async t => {
+  const h = await harness(t), original = await createAssembly(h), saved = structuredClone(original);
+  const revision = restorationEditRevision(original);
+  assert.deepEqual(original.fit.goal.bounds['crown.width'], [3.4, 5.4]);
+  const change = { reason: 'Inspect width below the inherited goal bound.', parameters: { crown: { width: 3.3 } } };
+  const pending = h.api.edit(original.id, change, { actor: 'agent', expectedRevision: revision });
+  const rejected = assert.rejects(pending, error => error.name === 'RestorationEditRejected'
+    && error.reasons.some(reason => /outside.*original goal bounds/.test(reason)) && error.candidate.parameters.crown.width === 3.3);
+  await replyFit(h.takeWorker()); await rejected; h.render();
+  assert.equal(h.api.assemblies[0], original);
+  assert.deepEqual(original, saved);
+  assert.equal(restorationEditRevision(original), revision);
+  const manual = h.api.edit(original.id, change, { actor: 'manual', expectedRevision: revision });
+  await replyFit(h.takeWorker()); const inspected = await manual; h.render();
+  assert.equal(inspected.spec.parameters.crown.width, 3.3);
+  assert.equal(inspected.previousVersions.length, 1);
+  assert.deepEqual(inspected.previousVersions[0].spec, original.spec);
+});
+
+test('refreshing an incomplete agent baseline forwards its original goal contract to both measurements', async t => {
+  const surfaces = [{ id: 'synthetic-neighbor', role: 'adjacent', side: 'mesial', targetGap: .013,
+    positions: Float32Array.of(5,-10,-10, 5,10,-10, 5,10,10, 5,-10,-10, 5,10,10, 5,-10,10) }];
+  const h = await harness(t), initial = await createAssembly(h, concept(), [], surfaces);
+  const firstEdit = h.api.edit(initial.id, { reason: 'Widen toward the supplied neighbor.', parameters: { crown: { width: 4.4 } } }, { actor: 'agent' });
+  await replyFit(h.takeWorker(), surfaces); const original = await firstEdit; h.render();
+  assert.deepEqual(original.fit.goal.bounds, initial.fit.goal.bounds);
+  assert.deepEqual(original.fit.goal.contract, initial.fit.goal.contract);
+  original.fit.after.surfaces[0].intersectionComplete = false;
+  const saved = structuredClone(original), revision = restorationEditRevision(original);
+  const pending = h.api.edit(original.id, { reason: 'Appearance review after refreshing a capped audit.', appearance: { crown: { color: '#ddddcc' } } }, { actor: 'agent', expectedRevision: revision });
+  void pending.catch(() => {}); // Cleanup can cancel this request if a forwarding assertion fails.
+  const baselineWorker = h.takeWorker();
+  assert.equal(baselineWorker.request.spec.parameters.crown.width, 4.4);
+  assert.deepEqual(baselineWorker.request.goalContract, saved.fit.goal);
+  const baseline = await replyFit(baselineWorker, surfaces); await microtasks();
+  assert.deepEqual(baseline.report.goal.bounds, initial.fit.goal.bounds);
+  assert.deepEqual(baseline.report.goal.contract, initial.fit.goal.contract);
+  assert.deepEqual(baseline.report.goal.targetGaps, initial.fit.goal.targetGaps);
+  assert.equal(h.api.assemblies[0], original);
+  assert.deepEqual(original, saved);
+  assert.equal(restorationEditRevision(original), revision);
+  const candidateWorker = h.takeWorker();
+  assert.deepEqual(candidateWorker.request.goalContract, baseline.report.goal);
+  await replyFit(candidateWorker, surfaces); const edited = await pending; h.render();
+  assert.deepEqual(edited.fit.goal.bounds, initial.fit.goal.bounds);
+  assert.deepEqual(edited.fit.goal.contract, initial.fit.goal.contract);
+  assert.deepEqual(edited.fit.goal.targetGaps, initial.fit.goal.targetGaps);
+  assert.equal(edited.previousVersions.length, 2);
+  assert.deepEqual(original, saved);
+});
+
+async function createAssembly(h, spec = concept(), proposals = [], surfaces = []) {
   const work = h.api.create([spec.fdi], h.teeth, [], proposals);
   h.takeWorker().reply({ specs: [spec], warnings: [] });
   await microtasks();
-  await replyFit(h.takeWorker());
+  await replyFit(h.takeWorker(), surfaces);
   await work; h.render();
   const assembly = h.api.assemblies.find(item => item.spec.fdi === spec.fdi);
   assert.ok(assembly, `Expected generated assembly for FDI ${spec.fdi}`);
@@ -166,6 +252,9 @@ test('shared manual and agent edits measure one exact candidate and preserve vis
   assert.equal(edited.parts[0].visible, false);
   assert.equal(edited.previousVersions.length, 1); assert.deepEqual(edited.previousVersions[0].spec, original.spec);
   assert.equal(edited.parts[2].presentationColor, '#bbccdd'); assert.equal(edited.parts[2].presentationRoughness, 0.7);
+  const displayed = h.api.displayParts.find(part => part.restoration.component === 'crown');
+  assert.equal(crownEnamel(displayed).source, 'manual-display-color');
+  assert.equal(displayed.presentationColor, '#bbccdd'); assert.equal(displayed.presentationRoughness, 0.7);
   assert.deepEqual(h.teeth, chart);
   const agent = staleCallback(original.id, { reason: 'Inspect bounded contour change.', contour: { cervicalScale: 0.9 } }, { actor: 'agent', expectedRevision: restorationEditRevision(edited) });
   const nextWorker = h.takeWorker();
@@ -176,6 +265,113 @@ test('shared manual and agent edits measure one exact candidate and preserve vis
   assert.equal(next.previousVersions.length, 2); assert.equal(next.parts[0].visible, false);
   assert.deepEqual(next.spec.parameters, edited.spec.parameters);
   assert.notEqual(restorationEditRevision(next), restorationEditRevision(edited));
+});
+
+test('manual dimensions and measurement-only rechecks preserve the original absolute requirements', async t => {
+  const h = await harness(t), initial = await createAssembly(h);
+  const manual = h.api.edit(initial.id, { reason: 'Inspect a larger crown against the same requirements.', parameters: { crown: { width: 4.5 } } });
+  const worker = h.takeWorker();
+  assert.deepEqual(worker.request.goalContract, initial.fit.goal);
+  await replyFit(worker); const edited = await manual; h.render();
+  assert.deepEqual(edited.fit.goal.bounds, initial.fit.goal.bounds);
+  assert.deepEqual(edited.fit.goal.contract, initial.fit.goal.contract);
+  const recheck = h.api.recheck(edited.id), audit = h.takeWorker();
+  assert.equal(audit.request.options.maxCandidates, 1);
+  assert.deepEqual(audit.request.spec.parameters, edited.spec.parameters);
+  assert.deepEqual(audit.request.goalContract, edited.fit.goal);
+  await replyFit(audit); const checked = await recheck; h.render();
+  assert.deepEqual(checked.spec.parameters, edited.spec.parameters);
+  assert.deepEqual(checked.fit.goal.bounds, initial.fit.goal.bounds);
+  assert.deepEqual(checked.fit.goal.contract, initial.fit.goal.contract);
+  for (let i = 0; i < edited.parts.length; i++) assert.deepEqual(checked.parts[i].positions, edited.parts[i].positions);
+  assert.equal(checked.previousVersions.length, 2);
+});
+
+test('geometry rechecks cancel on source changes and retain the previous revision', async t => {
+  const h = await harness(t), original = await createAssembly(h);
+  const pending = h.api.recheck(original.id);
+  const rejected = assert.rejects(pending, /evidence changed/i), worker = h.takeWorker();
+  h.render({ parts: h.parts.map(part => ({ ...part, positions: part.positions.slice() })) });
+  assert.equal(worker.terminated, true);
+  await rejected;
+  await replyFit(worker); h.render();
+  const retained = h.api.assemblies.find(item => item.id === original.id);
+  assert.deepEqual(retained.spec, original.spec);
+  assert.deepEqual(retained.previousVersions, original.previousVersions);
+  assert.equal(isStale(retained), true);
+});
+
+test('rechecking an older agent design upgrades additive checks without an agent-edit rejection', async t => {
+  const h = await harness(t), original = await createAssembly(h);
+  original.spec.editProvenance = { actor: 'agent', reason: 'Earlier hypothetical design.' };
+  delete original.fit.abutmentGingiva;
+  for (const snapshot of [original.fit.goal.before, original.fit.goal.after, original.fit.goal.contract, ...original.fit.goal.attempts.map(attempt => attempt.snapshot)]) {
+    snapshot.rows = snapshot.rows.filter(row => row.id !== 'abutment-gingiva' && !row.id.startsWith('space-occupancy.'));
+  }
+  const pending = h.api.recheck(original.id), worker = h.takeWorker();
+  assert.equal(worker.request.options.maxCandidates, 1);
+  await replyFit(worker); const checked = await pending; h.render();
+  assert.ok(checked.fit.goal.after.rows.some(row => row.id === 'abutment-gingiva'));
+  assert.deepEqual(checked.fit.goal.bounds, original.fit.goal.bounds);
+  assert.deepEqual(checked.spec.parameters, original.spec.parameters);
+  assert.deepEqual(checked.parts.map(part => part.positions), original.parts.map(part => part.positions));
+});
+
+test('copies of prior edits retain that revision\'s absolute fit requirements', async t => {
+  const h = await harness(t), original = await createAssembly(h);
+  for (const width of [4.5, 4.8]) {
+    const pending = h.api.edit(original.id, { reason: 'Inspect a manual width.', parameters: { crown: { width } } });
+    await replyFit(h.takeWorker()); await pending; h.render();
+  }
+  const current = h.api.assemblies[0], historical = current.previousVersions[1];
+  const pending = h.api.compare(current.id, undefined, 1), worker = h.takeWorker();
+  assert.equal(worker.request.spec.parameters.crown.width, 4.5);
+  assert.deepEqual(worker.request.goalContract, historical.fit.goal);
+  await replyFit(worker); await pending; h.render();
+  assert.deepEqual(h.api.assemblies.at(-1).fit.goal.bounds, original.fit.goal.bounds);
+});
+
+test('display enamel follows local scan color updates and reopening without changing saved geometry or fit evidence', async t => {
+  const h = await harness(t), positions = [];
+  for (let y = -1.2; y < 1.3; y += .8) for (let z = 1; z <= 4; z++) positions.push(3, y, z, 3, y + .3, z, 3, y, z + .3);
+  const colors = Float32Array.from(positions, (_, i) => [.5, .48, .42][i % 3]);
+  const source = { ...h.parts[0], positions: Float32Array.from(positions), normals: new Float32Array(positions.length), colors,
+    tissueScores: new Float32Array(positions.length / 9), triangles: positions.length / 9, vertices: positions.length / 3 };
+  h.render({ parts: [source] });
+  const original = await createAssembly(h), raw = original.parts.find(part => part.restoration.component === 'crown');
+  const displayed = h.api.displayParts.find(part => part.restoration.component === 'crown');
+  assert.equal(crownEnamel(displayed).source, 'nearby-scan-colors');
+  assert.equal(displayed.positions, raw.positions);
+  assert.equal(raw.colors, undefined, 'appearance buffers stay outside saved component geometry');
+  const newColors = Float32Array.from(positions, (_, i) => [.4, .39, .35][i % 3]);
+  h.render({ parts: [{ ...source, colors: newColors }] });
+  const recolored = h.api.displayParts.find(part => part.restoration.component === 'crown');
+  assert.notEqual(recolored.presentationColor, displayed.presentationColor);
+  assert.equal(recolored.positions, raw.positions);
+  assert.equal(h.api.assemblies[0], original, 'presentation updates do not revise or invalidate an assembly');
+  assert.equal(isStale(original), false);
+  h.api.restore(structuredClone(h.api.assemblies)); h.render();
+  const reopened = h.api.displayParts.find(part => part.restoration.component === 'crown');
+  assert.equal(reopened.presentationColor, recolored.presentationColor);
+  assert.deepEqual(reopened.colors, recolored.colors);
+  assert.equal(crownEnamel(reopened).source, 'nearby-scan-colors');
+});
+
+test('editing the first of multiple assemblies preserves inventory order and the untouched design', async t => {
+  const h = await harness(t), first = await createAssembly(h, concept(36)), second = await createAssembly(h, concept(46));
+  const ids = h.api.assemblies.map(item => item.id);
+  assert.deepEqual(ids, [first.id, second.id]);
+  assert.equal(h.api.selectedId, second.id);
+  const pending = h.api.edit(first.id, { reason: 'Keep anonymous design aliases stable during a local edit.', parameters: { crown: { width: 4.2 } } }, { actor: 'agent', expectedRevision: restorationEditRevision(first) });
+  await replyFit(h.takeWorker()); const edited = await pending; h.render();
+  assert.deepEqual(h.api.assemblies.map(item => item.id), ids);
+  assert.equal(h.api.assemblies[0], edited);
+  assert.equal(h.api.assemblies[1], second);
+  assert.equal(h.api.selectedId, second.id, 'Editing another named concept does not change user selection.');
+  const again = h.api.edit(first.id, { reason: 'Continue editing the same anonymous design.', parameters: { crown: { width: 4.3 } } }, { actor: 'agent', expectedRevision: restorationEditRevision(edited) });
+  await replyFit(h.takeWorker()); await again; h.render();
+  assert.deepEqual(h.api.assemblies.map(item => item.id), ids);
+  assert.equal(h.api.assemblies[1], second);
 });
 
 test('stale revisions, no-op and invalid edits reject before worker creation and expose errors', async t => {

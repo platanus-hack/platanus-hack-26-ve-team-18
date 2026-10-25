@@ -13,7 +13,7 @@ import { beginWorkflow, endWorkflow } from '../src/case-workflow.ts';
 // dependency or production component copy is needed for these guidance checks.
 const require = createRequire(import.meta.url);
 const modules = new Map([['./anthropic-models', new URL('../src/anthropic-models.ts', import.meta.url).href]]);
-for (const name of ['AnthropicModelSelect', 'ProcessPanel']) {
+for (const name of ['AnthropicModelSelect', 'AIActivity', 'ProcessPanel']) {
   const url = new URL(`../src/${name}.tsx`, import.meta.url);
   const source = (await readFile(url, 'utf8')).replace(/^import '\.\/[^']+\.css';\s*$/gm, '');
   const transformed = await transformWithOxc(source, url.pathname, { jsx: { runtime: 'automatic' } });
@@ -90,4 +90,40 @@ test('a rejected first import displays its error and retains the add-files actio
   assert.match(markup, /data-status="error"/);
   assert.match(markup, /Malformed scan: no usable triangles/);
   assert.match(primaryButton(markup), /Add patient files/);
+});
+
+test('AI activity remains visible during assessment and after the draft is available', () => {
+  const call = { id: 'tool-1', name: 'evaluateMissingSite', phase: 'running', input: { siteId: 'local-gap' } };
+  const running = render({ ...base(), configured: true, assessing: true }, { aiActivity: [call] });
+  assert.match(running, /AI tool activity/);
+  assert.match(running, /Tool call in progress/);
+  assert.match(running, /local-gap/);
+  const completed = render({ ...base(), configured: true, hasAssessment: true, assessmentSource: 'ai', generatedCount: 1, run: completeRun() }, {
+    aiActivity: [{ ...call, phase: 'complete', output: { units: 'file units (u)', evidence: 'Saved observed neighbours.' }, durationMs: 91 }],
+  });
+  assert.match(completed, /AI tool activity/);
+  assert.match(completed, /Saved observed neighbours/);
+  assert.match(completed, /91 ms/);
+  assert.match(primaryButton(completed), /Inspect draft details/);
+});
+
+test('AI failures before any tool calls stay explicit without adding AI activity to local runs', () => {
+  const failed = { ...base(), configured: true, error: 'Provider request failed.' };
+  assert.match(render(failed, { aiActivity: [] }), /No tool calls were recorded before the workflow stopped/);
+  assert.doesNotMatch(render({ ...failed, configured: false }, { aiActivity: [] }), /AI tool activity/);
+});
+
+test('provider disclosure describes bounded follow-up and distinguishes requested from applied revisions', () => {
+  const html = render({ ...base(), configured: true });
+  assert.match(html, /Up to 6 bounded AI requests/);
+  assert.match(html, /planning, measured follow-up and final review/);
+  assert.match(html, /Requested revisions remain pending until local work returns an applied result/);
+  assert.doesNotMatch(html, /Up to two AI requests/);
+});
+
+test('preparation and local generation never invent an AI request in progress', () => {
+  const preparation = render({ ...base(), configured: true, preparing: true, evidenceReady: false });
+  assert.doesNotMatch(preparation, /AI request in progress|AI tool activity/);
+  const local = render({ ...base(), configured: true, hasAssessment: true, assessmentSource: 'local', generating: true, generationPhase: 'creating' });
+  assert.doesNotMatch(local, /AI request in progress|AI tool activity/);
 });
