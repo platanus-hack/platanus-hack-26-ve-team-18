@@ -4,7 +4,7 @@ import type { ToothCase } from './tooth-types';
 import type { RestorationAssembly, RestorationSpec } from './restoration-types';
 import { Viewport } from './Viewport';
 import { ToothOdontogram } from './ToothOdontogram';
-import { toothArch, toothName } from './teeth';
+import { toothName } from './teeth';
 import { generateRestoration } from './restoration-geometry';
 import { importModels } from './import-models';
 import './patient-view.css';
@@ -41,13 +41,13 @@ export function toothNameEs(code: number): string {
 const DEMO_SPEC: RestorationSpec = {
   version: 'implant-assembly/v1',
   fdi: 21,
-  parentPartId: 'upper-arch',
+  parentPartId: 'upper',
   anatomy: 'incisor',
   frame: {
-    origin: [0, 0, 0] as Vec3,
+    origin: [3.8, 25.5, 5.0] as Vec3,
     u: [1, 0, 0] as Vec3,
-    v: [0, 1, 0] as Vec3,
-    up: [0, 0, 1] as Vec3,
+    v: [0, 0.96, -0.28] as Vec3,
+    up: [0, 0.28, 0.96] as Vec3,
   },
   parameters: {
     fixture: { radius: 1.9, length: 11.5, depth: 1.5, taper: 0.15 },
@@ -78,6 +78,7 @@ export function PatientView({
   const [showBone, setShowBone] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
   const [demoArchParts, setDemoArchParts] = useState<ModelPart[]>([]);
+  const [loadingMeshes, setLoadingMeshes] = useState(isDemoMode);
 
   // Default patient info
   const patientName = isDemoMode ? 'Sofia M.' : 'Paciente';
@@ -86,26 +87,37 @@ export function PatientView({
     ? 'Evaluación y planificación para rehabilitación de pieza dental en sector anterosuperior (diente FDI 21). El reborde alveolar presenta adecuada disponibilidad ósea en el estudio tomográfico CBCT. Se planificó la colocación de un implante cónico de titanio biocompatible con carga diferida y la posterior confección de una corona estética de circonio anatómico con perfil de emergencia natural.'
     : 'Planificación de tratamiento dental y rehabilitación personalizada.';
 
-  // In demo mode, load sample bite arch
+  // In demo mode, load full upper and lower arches
   useEffect(() => {
     if (!isDemoMode) return;
     let cancelled = false;
-    fetch('/patient-demo/bite1.ply')
-      .then(res => {
-        if (!res.ok) throw new Error('No se pudo cargar la arcada de demostración');
-        return res.blob();
-      })
-      .then(blob => {
-        if (cancelled) return;
-        const file = new File([blob], 'bite1.ply', { type: 'application/octet-stream' });
-        return importModels([file]);
-      })
+    setLoadingMeshes(true);
+
+    Promise.all([
+      fetch('/patient-demo/upper.ply')
+        .then(r => r.blob())
+        .then(b => new File([b], 'upper.ply', { type: 'application/octet-stream' })),
+      fetch('/patient-demo/lower.ply')
+        .then(r => r.blob())
+        .then(b => new File([b], 'lower.ply', { type: 'application/octet-stream' })),
+    ])
+      .then(files => importModels(files))
       .then(res => {
         if (!cancelled && res && res.parts.length > 0) {
-          setDemoArchParts(res.parts.map(p => ({ ...p, role: 'upper' as const })));
+          const tagged = res.parts.map(p => ({
+            ...p,
+            role: (p.name.includes('upper') ? 'upper' : 'lower') as 'upper' | 'lower',
+          }));
+          setDemoArchParts(tagged);
         }
       })
-      .catch(() => {});
+      .catch(err => {
+        console.warn('Demo arches could not be loaded:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMeshes(false);
+      });
+
     return () => {
       cancelled = true;
     };
@@ -115,7 +127,7 @@ export function PatientView({
   const activeParts = useMemo(() => {
     if (!isDemoMode) return parts;
 
-    // Generate demo 3D restoration parts (fixture, abutment, crown for FDI 21)
+    // Generate demo 3D restoration parts (fixture, abutment, crown for FDI 21 positioned in the arch gap)
     const demoMeshes = generateRestoration(DEMO_SPEC);
     const generatedParts: ModelPart[] = demoMeshes.map(mesh => ({
       id: `demo-${mesh.component}`,
@@ -138,7 +150,7 @@ export function PatientView({
       restoration: {
         component: mesh.component,
         assemblyId: 'demo-assembly',
-        parentPartId: 'upper-arch',
+        parentPartId: 'upper',
       },
     }));
 
@@ -180,7 +192,7 @@ export function PatientView({
       const component = part.restoration?.component;
 
       if (!isRestoration) {
-        next[part.id] = showArch ? (initialOpacities[part.id] ?? 1) : 0;
+        next[part.id] = showArch ? (initialOpacities[part.id] ?? 0.85) : 0;
       } else if (component === 'crown') {
         next[part.id] = showCrown ? 1 : 0;
       } else {
@@ -322,6 +334,12 @@ export function PatientView({
           </p>
 
           <div className="patient-viewport-box">
+            {loadingMeshes && (
+              <div className="patient-loading-overlay">
+                <span className="spinner" />
+                <span>Cargando modelo 3D de alta definición…</span>
+              </div>
+            )}
             <Viewport
               parts={activeParts}
               referenceParts={referenceParts}
@@ -346,7 +364,7 @@ export function PatientView({
                 onChange={e => setShowArch(e.target.checked)}
               />
               <span className="swatch arch" />
-              Tus dientes
+              Tus dientes ({activeParts.filter(p => !p.id.startsWith('demo-')).length ? 'Arcadas completas' : 'Modelo dental'})
             </label>
             <label className="layer-item">
               <input

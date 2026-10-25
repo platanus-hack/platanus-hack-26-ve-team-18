@@ -446,6 +446,23 @@
   background: radial-gradient(ellipse at 50% 40%, #2f4542 0%, #1c2e2c 60%, #13201e 100%);
 }
 
+.patient-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(19, 32, 30, 0.7);
+  backdrop-filter: blur(4px);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 10;
+  pointer-events: none;
+}
+
 .patient-viewport-box .viewport {
   height: 100% !important;
   min-height: 100% !important;
