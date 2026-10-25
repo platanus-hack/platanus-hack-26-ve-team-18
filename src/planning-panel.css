@@ -23,11 +23,11 @@
 .planning-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .planning-inputs > div { min-width: 0; padding: 9px 11px; border: 1px solid #e0e9f4; border-radius: 6px; background: #f8fbff; }
 .planning-inputs dt { color: #6a8099; font-size: 12px; }
-.planning-inputs dd { color: #344f70; font-weight: 550; }
+.planning-inputs dd { color: #344f70; font-weight: 650; }
 .planning-panel .planning-note, .planning-disclosure { padding: 10px 12px; border: 1px solid #dce8f5; border-radius: 7px; background: #f0f7ff; color: #486887; font-size: 12px; line-height: 1.7; }
 .planning-panel .planning-empty { margin-top: 12px; padding: 12px; border: 1px dashed #cbdbea; border-radius: 7px; background: #f9fbfe; color: #61758b; }
 .planning-empty > p, .planning-empty > button { margin-top: 9px; }
-.planning-local-summary { display: grid; gap: 4px; margin-top: 12px; padding: 10px; border-left: 2px solid #bad5f3; background: #f5f9fe; font-size: 12px; }
+.planning-local-summary { display: grid; gap: 4px; margin-top: 12px; padding: 10px; border: 1px solid #dce8f5; background: #f5f9fe; font-size: 12px; }
 .planning-panel ul { margin: 7px 0 0; padding-left: 18px; }
 .planning-panel li + li { margin-top: 6px; }
 .planning-panel .planning-overview { width: 100%; margin-top: 12px; }

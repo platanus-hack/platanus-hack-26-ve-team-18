@@ -60,7 +60,7 @@ test('completed draft findings remain visible without a continue or approval act
   assert.match(markup, /Draft findings/);
   assert.match(markup, /Unresolved patient-side FDI/);
   assert.match(markup, /Crossing surface pairs/);
-  assert.match(markup, /1 more item in the draft details/);
+  assert.match(markup, /<span class="num">1<\/span> more item in the draft details/);
   assert.match(primaryButton(markup), /Inspect draft details/);
   assert.match(markup, /do not pause draft generation or require approval/);
   assert.doesNotMatch(markup, /Before continuing|Resume local workflow|Retry local workflow|Continue locally/);

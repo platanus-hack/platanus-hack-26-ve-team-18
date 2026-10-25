@@ -76,7 +76,7 @@ export function useTomography() {
     }, milliseconds);
   }, [finish, terminate]);
 
-  const importFiles = useCallback((files: File[] | FileList, allowIncompletePreview = false, seriesId?: string) => {
+  const importFiles = useCallback((files: File[] | FileList, allowIncompletePreview = true, seriesId?: string) => {
     terminate(); setVolume(null); currentVolume.current = null; setSurface(null); setSeriesChoices([]); setError('');
     if (!files.length) { setLoading(false); setSurfaceBusy(false); setStatus('empty'); setProgress(''); return; }
     setLoading(true); setSurfaceBusy(false); setStatus('importing'); setProgress('Inspecting local DICOM headers…');
