@@ -1,54 +1,84 @@
-# Platanus Dental v2 — Planificación de Implantes y Restauración 3D Asistida por IA
+# Céflow — Planificación Odontológica 3D Automatizada
 
 > **Track:** 🧊 Three-Dimensional  
 > **Platanus Hack 26: Caracas ft. Yummy — Team 18**  
 > **Demo en vivo:** [https://platanus-p2.onrender.com](https://platanus-p2.onrender.com)  
-> **Código:** [https://github.com/Doble-2/platanus-hack-p2](https://github.com/Doble-2/platanus-hack-p2)
+> **Portal de Paciente:** [https://platanus-p2.onrender.com/#patient](https://platanus-p2.onrender.com/#patient)  
+> **Código fuente:** [https://github.com/Doble-2/platanus-hack-p2](https://github.com/Doble-2/platanus-hack-p2)
 
 ---
 
-## 💡 El Problema
-La odontología digital moderna para implantes y prótesis fija depende de software CAD/CAM legacy (exocad, exoplan, 3Shape) con barreras críticas:
-- **Costos astronómicos:** Licencias anuales superiores a **$15.000 USD** con bloqueos de dongle físico y costos por caso exportado.
-- **Hardware privativo:** Exigen estaciones de trabajo de escritorio con GPUs Nvidia de alta gama; imposibles de usar en Mac, laptops ligeras o tablets.
-- **Falta de comprensión del paciente:** Los odontólogos planifican en interfaces saturadas de ingeniería; el paciente no comprende el valor de un implante guiado y rechaza presupuestos por miedo o desconfianza.
+## ⚡ En 1 palabra
+**Planificación.**
 
 ---
 
-## 🚀 Nuestra Solución: Platanus Dental v2
-Una plataforma web 3D de ingeniería de precisión que procesa **todo el cómputo geométrico localmente en el navegador del cliente mediante Web Workers multihilo**, asistida por visión multimodal de frontera (Claude 3.5 Sonnet) y con un portal de consulta diseñado para pacientes.
-
-### 1. Motor 3D en el Cliente (Zero-Latency Web Workers)
-- **Registro y Alineación Oclusal:** Algoritmos ICP y árboles KD acelerados en Web Workers para relacionar arcadas superior, inferior y mordidas estáticas.
-- **Detección de Colisiones & Penetración en Tiempo Real:** Medición de holguras de contacto y distancias interproximales con precisión de décimas de milímetro.
-- **Tomografía CBCT & DICOM Nativa:** Decodificación de volúmenes DICOM directamente en el cliente, extracción de superficies óseas por Marching Cubes y visualización ortogonal sincronizada.
-
-### 2. Generación Paramétrica de Prótesis e Implantes
-- **Ensamblaje Anatómico Completo:** Posicionamiento tridimensional de implante (fixture de titanio), pilar protésico transmucoso y corona estética de circonio.
-- **Ajuste y Guardarraíles Clínicos:** Guardarraíles de seguridad biológica (espacio biológico, profundidad subcrestal y ángulos límite de pilar) validados matemáticamente.
-- **Edición Asistida por IA Multimodal:** Claude Sonnet 3.5 inspecciona capturas renderizadas 3D de alta resolución y sugiere adaptaciones clínicas.
-
-### 3. Portal Interactivo del Paciente (`#patient`)
-- **Odontograma FDI Interactivo:** Mapa dental visual de 32 piezas que permite al paciente explorar el estado de su boca (dientes sanos, ausencias y restauraciones planificadas).
-- **Visualizador 3D Intuitivo:** Controles simplificados para observar el futuro implante y corona estética en 3D desde cualquier dispositivo.
-- **Control de Capas:** Opciones sencillas para encender/apagar dientes, corona estética, implante de titanio y hueso tomográfico.
-- **Explicación Clínica en Lenguaje Claro:** Desglose del procedimiento paso a paso, fases de tratamiento, beneficios biológicos y botón directo para consultas por WhatsApp con la clínica.
+## 🧭 Origen
+**Céflow** nace para revolucionar la planificación odontológica en casos complejos, reduciendo procesos de semanas a unas pocas horas. Transformamos mecanismos manuales e ineficientes en flujos digitales de alta precisión milimétrica.
 
 ---
 
-## 🧪 Calidad, Robustez y Pruebas
-- **1.026 Tests Unitarios & de Integración (100% Pass):** Suite exhaustiva que verifica cálculo de mallas, serialización DICOM, guardarraíles protésicos y flujos de edición asistida.
-- **Pruebas End-to-End con Playwright:** Cobertura automatizada sobre el shell clínico, montaje del visor 3D, navegación hacia el portal del paciente y validación del odontograma interactivo.
-- **Cero dependencias pesadas en servidor:** Todo el renderizado y la computación geométrica se ejecutan en WebGL y Web Workers sin requerir servidores GPU costosos.
+## 📖 Historia
+Al vivir de cerca el tiempo que se pierde en tareas manuales, repetitivas y costosas para proyectar un caso, identificamos una gran oportunidad para transformar la planificación clínica. Unimos la experiencia médica directa con el desarrollo tecnológico de vanguardia para crear la solución que el especialista siempre necesitó.
 
 ---
 
-## 🛠️ Stack Tecnológico
-- **Frontend & 3D:** React 19, TypeScript, Three.js, Vite, Web Workers API, CSS Tokens.
-- **Inteligencia Artificial:** Anthropic Claude 3.5 Sonnet vía Vercel AI SDK (visión multimodal y herramientas clínicas estructuradas con Zod).
-- **Procesamiento Médico:** Parser DICOM en WebAssembly/Workers, Marching Cubes, KD-Tree collision detection.
-- **Testing & E2E:** Node.js native test runner con type-stripping (`pnpm test`), Playwright (`pnpm test:e2e`).
-- **Despliegue:** Render Cloud (Docker preview containerizado, HTTP/2, auto-deploy en main).
+## 🛠️ Servicio
+Servicio de **visualización 3D y planificación clínica automatizada**, diseñada para optimizar radicalmente el flujo de trabajo de odontólogos especialistas.
+
+Permite cargar insumos digitales estándar (escaneos intraorales, tomografías CBCT DICOM, fotografías clínicas) y obtener en minutos segmentación anatómica, cálculo de mordida y colisiones en tiempo real, guardarraíles protésicos y una hoja de consulta 3D interactiva para el paciente.
+
+---
+
+## ✨ Fortalezas Clave
+- **Adaptación y visualización a diferentes casos:** Soporta arcadas completas, registros de mordida estáticos y dinámicos, tomografías óseas y piezas unitarias o múltiples.
+- **Eficiencia operativa y ahorro de costos:** Reduce el 80% del trabajo manual repetitivo del especialista, eliminando licencias privativas de más de $15.000 USD y hardware GPU especializado.
+- **Optimización del Margen de Ganancia:** Permite al especialista atender a un mayor volumen de pacientes al liberar tiempo administrativo y de diseño manual exhaustivo.
+- **Diseñado por y para odontólogos:** Al contar con un odontólogo en nuestro equipo fundador, garantizamos que la interfaz resuelva problemas clínicos diarios reales con el lenguaje del especialista.
+- **Aumento en la Tasa de Aceptación de Tratamientos:** La simulación visual 3D interactiva permite explicar el caso de forma clara y pedagógica al paciente, generando mayor confianza y acelerando la aprobación del presupuesto.
+- **Reducción del Error Humano:** Al estandarizar la medición y el trazado de la arcada/mordida mediante algoritmos matemáticos deterministas, se disminuye la probabilidad de imprecisiones en el diagnóstico inicial.
+- **Compatibilidad con insumos estándar de la industria:** Centraliza en un solo lugar fotografías clínicas, archivos de escáner intraoral (`.STL`, `.OBJ`, `.PLY` con texturas fotorrealistas) y tomografías computarizadas (`DICOM Part 10`).
+
+---
+
+## ⚖️ Análisis Estratégico y Mitigación de Debilidades
+
+### 1. Responsabilidad Clínica y Validación Médica Final
+- **Reto:** Al tratarse de diagnósticos y proyecciones de salud, el software no puede asumir la responsabilidad médica por un diagnóstico erróneo si el algoritmo propone una medición equivocada.
+- **Impacto:** Necesidad de un marco legal riguroso y términos de uso explícitos.
+- **Enfoque Céflow:** Céflow se posiciona como una **herramienta de soporte a la planificación clínica**. El control y la aprobación del plan de tratamiento siempre recaen sobre el odontólogo, quien revisa, edita y aprueba las proyecciones en pantalla antes de su ejecución clínica.
+
+### 2. Resistencia al Cambio en el Sector Odontológico Tradicional
+- **Reto:** El sector a veces muestra resistencia a cambiar sus flujos de trabajo establecidos o a confiar plenamente en herramientas automatizadas.
+- **Impacto:** Tiempos de venta más largos y necesidad de capacitación inicial.
+- **Enfoque Céflow:** Al tener un odontólogo en nuestro equipo, la herramienta habla el mismo lenguaje del especialista y se integra como un **asistente inteligente**, no como un reemplazo. El objetivo no es sustituir el criterio médico, sino **adelantar el 80% de su trabajo de planificación que suele ser repetitivo y tedioso**.
+
+---
+
+## 💡 Inspiración
+Nos inspira el compromiso inquebrantable de los profesionales de la salud, quienes dedican su vida a devolver la funcionalidad, la estética y la confianza a sus pacientes. Soñamos y construimos un futuro donde la tecnología elimine las barreras operativas y el tiempo perdido en el consultorio.
+
+---
+
+## 🎯 Ventaja Frente a la Competencia
+Frente a las suites CAD legacy de escritorio (como *exocad*, *3Shape* o *exoplan*):
+1. **Funcionalidades y Costos:** Cero licencias de $15.000 USD/año, cero dongles físicos USB, cero servidores con GPUs caras dedicadas. Todo corre en la web.
+2. **Menor Complejidad de Uso:** Curva de aprendizaje inmediata, interfaz limpia y reactiva, sin configuraciones complejas de ingeniería.
+
+---
+
+## 🎭 Personalidad de Marca
+- **Analítica, milimétrica y ágil.**
+- **Serena y confiable bajo presión.**
+- **Vanguardista e innovadora.**
+
+---
+
+## 🔬 Arquitectura Técnica
+- **Motor Geométrico en el Cliente:** Aceleración mediante Web Workers multihilo en background. Ejecuta algoritmos de colisión BVH, árboles KD, registro ICP y Marching Cubes sin latencia de red.
+- **Inteligencia Artificial Multimodal:** Claude 3.5 Sonnet a través de Vercel AI SDK, ejecutando análisis estructurado de capturas 3D multi-vista sin exponer datos sensibles del paciente.
+- **Portal del Paciente (`#patient`):** Hoja médica digital con odontograma interactivo FDI de 32 piezas, render 3D de arcadas con texturas fotorrealistas y canal directo de resolución de dudas vía WhatsApp.
+- **1.026 Tests Unitarios (100% Pass) & E2E con Playwright:** Cobertura exhaustiva de precisión geométrica, parsing DICOM y flujos de usuario.
 
 ---
 

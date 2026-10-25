@@ -209,7 +209,7 @@ export function PatientView({
   };
 
   const whatsappMessage = encodeURIComponent(
-    `Hola, soy ${patientName} y estuve revisando mi informe dental 3D de Platanus Dental (Caso ${caseId}). Quisiera coordinar mi cita de control preventivo.`
+    `Hola, soy ${patientName} y estuve revisando mi informe dental 3D de Céflow Dental (Caso ${caseId}). Quisiera coordinar mi cita de control preventivo.`
   );
 
   return (
@@ -454,7 +454,7 @@ export function PatientView({
 
         {/* Footer */}
         <footer className="patient-footer">
-          <span>Platanus Dental v2 · Planificación Digital 3D</span>
+          <span>Céflow Dental · Planificación Digital 3D</span>
           <span>·</span>
           <button type="button" className="btn-link" onClick={onClose}>
             Modo Especialista
