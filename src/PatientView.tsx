@@ -89,8 +89,8 @@ export function PatientView({
   const patientName = isDemoMode ? 'Sofia M.' : 'Paciente';
   const caseId = isDemoMode ? 'PLT-2026-084' : 'CASO-ACTIVO';
   const doctorNote = isDemoMode
-    ? 'Evaluación y planificación para rehabilitación de pieza dental en sector anterosuperior (diente FDI 21). Se planificó la confección de una corona estética de circonio anatómico de alta translucidez, adaptada con precisión a la línea de sonrisa, oclusión y perfil gingival.'
-    : 'Planificación de tratamiento dental y rehabilitación personalizada.';
+    ? 'Evaluación y diagnóstico digital 3D de tus arcadas dentales. Ambas arcadas (superior e inferior) presentan adecuada alineación anatómica, contactos oclusales estables y tejidos gingivales saludables. Se recomienda mantener tu rutina de higiene y realizar control preventivo periódico.'
+    : 'Evaluación y registro clínico digital de tus arcadas dentales.';
 
   const [internalSelectedFdi, setInternalSelectedFdi] = useState<number | null>(selectedFdi ?? 21);
 
@@ -136,33 +136,10 @@ export function PatientView({
     };
   }, [isDemoMode]);
 
-  // Construct active parts for 3D viewing
+  // Construct active parts for 3D viewing (in demo mode, render the clean textured dental arches)
   const activeParts = useMemo(() => {
     if (!isDemoMode) return parts;
-
-    // Generate demo 3D restoration parts (only crown for FDI 21, implant removed)
-    const demoMeshes = generateRestoration(DEMO_SPEC).filter(mesh => mesh.component === 'crown');
-    const generatedParts: ModelPart[] = demoMeshes.map(mesh => ({
-      id: `demo-${mesh.component}`,
-      name: 'Corona de circonio FDI 21',
-      fileName: `demo-${mesh.component}.stl`,
-      positions: mesh.positions,
-      normals: mesh.normals,
-      triangles: mesh.triangles,
-      vertices: mesh.vertices,
-      closed: mesh.closed,
-      dimensions: mesh.dimensions,
-      offset: [0, 0, 0] as Vec3,
-      rotation: [0, 0, 0] as Vec3,
-      visible: true,
-      restoration: {
-        component: mesh.component,
-        assemblyId: 'demo-assembly',
-        parentPartId: 'upper',
-      },
-    }));
-
-    return [...demoArchParts, ...generatedParts];
+    return demoArchParts;
   }, [isDemoMode, parts, demoArchParts]);
 
   // Synthetic tooth case for demo
@@ -171,12 +148,10 @@ export function PatientView({
     const teethMap: ToothCase['teeth'] = {};
     for (let fdi = 11; fdi <= 48; fdi++) {
       if (fdi % 10 >= 1 && fdi % 10 <= 8) {
-        if (fdi === 21) {
-          teethMap[fdi] = { status: 'missing', restoration: 'crown', note: 'Corona planificada' };
-        } else if (fdi % 10 === 8) {
+        if (fdi % 10 === 8) {
           teethMap[fdi] = { status: 'unreviewed', restoration: 'none', note: 'Tercer molar ausente' };
         } else {
-          teethMap[fdi] = { status: 'present', restoration: 'none', note: '' };
+          teethMap[fdi] = { status: 'present', restoration: 'none', note: 'Diente natural sano' };
         }
       }
     }
@@ -196,7 +171,7 @@ export function PatientView({
   };
 
   // Selected tooth properties
-  const isSelectedPlanned = activeFdi === 21 || effectiveTeeth[activeFdi]?.restoration === 'crown' || effectiveTeeth[activeFdi]?.restoration === 'implant';
+  const isSelectedPlanned = activeParts.some(p => p.restoration && p.id.includes(String(activeFdi)));
   const isSelectedMissing = effectiveTeeth[activeFdi]?.status === 'missing';
   const isSelectedPresent = effectiveTeeth[activeFdi]?.status === 'present';
 
@@ -234,7 +209,7 @@ export function PatientView({
   };
 
   const whatsappMessage = encodeURIComponent(
-    `Hola, soy ${patientName} y estuve revisando mi informe dental 3D de Platanus Dental (Caso ${caseId}) para el diente FDI ${activeFdi} (${toothNameEs(activeFdi)}). Quisiera coordinar los siguientes pasos.`
+    `Hola, soy ${patientName} y estuve revisando mi informe dental 3D de Platanus Dental (Caso ${caseId}). Quisiera coordinar mi cita de control preventivo.`
   );
 
   return (
@@ -321,22 +296,15 @@ export function PatientView({
                 }`}
               >
                 {isSelectedPlanned
-                  ? 'Plan de corona'
+                  ? 'Plan de tratamiento'
                   : isSelectedMissing
                   ? 'Ausente estimado'
                   : 'Presente natural'}
               </span>
             </strong>
-            {isSelectedPlanned ? (
-              <p className="tooth-quote">
-                “Pieza planificada para rehabilitación estética con corona anatómica de circonio de alta
-                translucidez personalizada a tu mordida y color dental natural.”
-              </p>
-            ) : isSelectedMissing ? (
-              <p className="tooth-quote">“Espacio dental evaluado para posible restauración protésica.”</p>
-            ) : (
-              <p className="tooth-quote">“Diente natural sano sin necesidad de intervención invasiva.”</p>
-            )}
+            <p className="tooth-quote">
+              “Pieza dental natural en posición anatómica armónica, con esmalte íntegro y adecuada función oclusal en tu mordida.”
+            </p>
           </div>
         </section>
 
@@ -383,15 +351,17 @@ export function PatientView({
               <span className="swatch arch" />
               Tus dientes ({activeParts.filter(p => !p.id.startsWith('demo-')).length ? 'Arcadas completas' : 'Modelo dental'})
             </label>
-            <label className="layer-item">
-              <input
-                type="checkbox"
-                checked={showCrown}
-                onChange={e => setShowCrown(e.target.checked)}
-              />
-              <span className="swatch crown" />
-              Corona de circonio
-            </label>
+            {activeParts.some(p => p.restoration?.component === 'crown') && (
+              <label className="layer-item">
+                <input
+                  type="checkbox"
+                  checked={showCrown}
+                  onChange={e => setShowCrown(e.target.checked)}
+                />
+                <span className="swatch crown" />
+                Corona de circonio
+              </label>
+            )}
             {activeParts.some(p => p.restoration?.component === 'fixture') && (
               <label className="layer-item">
                 <input
@@ -406,24 +376,24 @@ export function PatientView({
           </div>
         </section>
 
-        {/* Card 5: Tu plan */}
+        {/* Card 5: Tu evaluación diagnóstica */}
         <section className="patient-card">
           <h2>
             <span className="card-icon">📋</span>
-            Tu plan de tratamiento
+            Tu evaluación diagnóstica
           </h2>
           <div className="plan-list">
             <div>
-              <strong>Corona Anatómica Estética FDI 21</strong>
-              <small>Incisivo Central Superior Izquierdo · Circonio de alta translucidez</small>
+              <strong>Diagnóstico Oclusal & Escaneo 3D</strong>
+              <small>Arcadas superior e inferior registradas con máxima precisión en oclusión habitual</small>
             </div>
             <div>
-              <strong>Alineación y Perfil de Emergencia</strong>
-              <small>Preservación de papila gingival y contacto interproximal guiado</small>
+              <strong>Evaluación Periodontal & Estética</strong>
+              <small>Márgenes gingivales íntegros sin signos inflamatorios o recesión patológica</small>
             </div>
             <div>
-              <strong>Cementación Adhesiva Biocompatible</strong>
-              <small>Fijación definitiva de alta resistencia con acabado natural</small>
+              <strong>Protocolo Preventivo & Mantenimiento</strong>
+              <small>Preservación de esmalte natural y control preventivo semestral recomendado</small>
             </div>
           </div>
           <p className="patient-hint">
@@ -431,32 +401,32 @@ export function PatientView({
           </p>
         </section>
 
-        {/* Card 6: Fases del procedimiento */}
+        {/* Card 6: Fases de seguimiento preventivo */}
         <section className="patient-card">
           <h2>
             <span className="card-icon">⏱️</span>
-            Fases del procedimiento
+            Fases de seguimiento preventivo
           </h2>
           <div className="timeline-steps">
             <div className="timeline-item done">
               <span className="step-circle">1</span>
               <div>
-                <strong>Diagnóstico Digital 3D & Escaneo Intraoral</strong>
-                <p>Escaneo intraoral de alta definición y evaluación oclusal completada.</p>
+                <strong>Escaneo Intraoral 3D & Fotografía Clínica</strong>
+                <p>Digitalización fotorealista completa de arcadas y mordida completada.</p>
               </div>
             </div>
             <div className="timeline-item current">
               <span className="step-circle">2</span>
               <div>
-                <strong>Diseño Digital & Fabricación CAD/CAM</strong>
-                <p>Fresado robótico de precisión de la corona de circonio con caracterización estética personalizada.</p>
+                <strong>Análisis Funcional y Oclusal</strong>
+                <p>Verificación de guías caninas, contactos interproximales y dinámica masticatoria.</p>
               </div>
             </div>
             <div className="timeline-item">
               <span className="step-circle">3</span>
               <div>
-                <strong>Corona Estética Definitiva</strong>
-                <p>Colocación y cementación de la corona de circonio con integración biológica perfecta.</p>
+                <strong>Control Periódico y Limpieza Profesional</strong>
+                <p>Cita de seguimiento preventivo recomendada en 6 meses para preservar tu sonrisa.</p>
               </div>
             </div>
           </div>
@@ -466,11 +436,11 @@ export function PatientView({
         <section className="patient-card whatsapp-card">
           <h2>
             <span className="card-icon">💬</span>
-            ¿Tienes dudas sobre tu plan?
+            ¿Tienes dudas sobre tu revisión?
           </h2>
           <p className="patient-note">
-            Tu odontólogo especialista ha preparado este informe digital para que conozcas cada detalle. Si
-            deseas agendar tu cita o hacer alguna pregunta sobre tu corona dental, contáctanos directamente.
+            Tu odontólogo especialista ha preparado este informe digital para que conozcas tu salud dental. Si
+            deseas agendar tu cita de control preventivo o hacer alguna pregunta, contáctanos directamente.
           </p>
           <a
             href={`https://wa.me/?text=${whatsappMessage}`}
