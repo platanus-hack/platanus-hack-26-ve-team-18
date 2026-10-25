@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: platanus-p2
+    name: cenflow-ph
     runtime: docker
     repo: https://github.com/Doble-2/platanus-hack-p2
     branch: develop
