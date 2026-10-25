@@ -1,309 +1,299 @@
-/* Patient Consultation View — Platanus Dental */
+/* Patient Medical Sheet (/p/:token o /#patient) — Sober clinical medical design */
 
-.patient-container {
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - 76px);
-  background: #f8fafc;
-  color: #1e293b;
+:root {
+  --pat-paper: #ffffff;
+  --pat-bg: #f4f6f4;
+  --pat-border: #e2e8e5;
+  --pat-mint: #eef5f2;
+  --pat-green: #1d775f;
+  --pat-green-dark: #144e3e;
+  --pat-muted: #5a6e69;
+  --pat-ink: #283d3b;
+  --pat-orange: #d97706;
 }
 
-.patient-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 28px;
-  background: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-  gap: 16px;
-  flex-wrap: wrap;
+.patient-medical-page {
+  min-height: 100vh;
+  background: var(--pat-bg);
+  color: var(--pat-ink);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-.patient-topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.patient-title-group h1 {
-  font-size: 20px;
-  font-weight: 700;
-  color: #0f172a;
-  letter-spacing: -0.4px;
-}
-
-.patient-subtitle {
-  font-size: 13px;
-  color: #64748b;
-  margin-top: 2px;
-}
-
-.patient-topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.patient-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 13px;
-  transition: all 0.15s ease;
-  cursor: pointer;
-}
-
-.patient-btn-outline {
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #334155;
-}
-
-.patient-btn-outline:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
-}
-
-.patient-btn-whatsapp {
-  background: #25d366;
-  color: #ffffff;
-  border: 1px solid #20ba5a;
-}
-
-.patient-btn-whatsapp:hover {
-  background: #1eb857;
-}
-
-/* Main Grid Layout */
-.patient-content-grid {
-  display: grid;
-  grid-template-columns: minmax(400px, 1.25fr) minmax(360px, 1fr);
-  gap: 24px;
-  padding: 24px 28px;
-  flex: 1;
-}
-
-@media (max-width: 1024px) {
-  .patient-content-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* 3D Scene Viewport Box */
-.patient-stage-card {
-  display: flex;
-  flex-direction: column;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-}
-
-.stage-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 20px;
-  border-bottom: 1px solid #f1f5f9;
-  background: #ffffff;
-}
-
-.stage-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1e293b;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stage-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stage-viewport-wrapper {
-  position: relative;
-  height: 520px;
-  background: #f1f5f9;
-  overflow: hidden;
-}
-
-.stage-viewport-wrapper .viewport {
-  height: 100% !important;
-  min-height: 100% !important;
-  border: none !important;
-  border-radius: 0 !important;
-}
-
-.stage-hint-badge {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.75);
+/* Nav Bar */
+.patient-nav-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(8px);
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 6px 14px;
-  border-radius: 20px;
-  pointer-events: none;
-  white-space: nowrap;
+  border-bottom: 1px solid var(--pat-border);
+  padding: 10px 16px;
 }
 
-/* Layer Visibility Toggles */
-.stage-layers-bar {
+.patient-nav-inner {
+  max-width: 720px;
+  margin: 0 auto;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  padding: 14px 20px;
-  background: #fafafa;
-  border-top: 1px solid #f1f5f9;
-  font-size: 12px;
-  color: #475569;
+  justify-content: space-between;
 }
 
-.layer-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.layer-toggle input[type="checkbox"] {
-  cursor: pointer;
-}
-
-.layer-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  display: inline-block;
-}
-
-.layer-swatch.teeth { background: #88c2b0; }
-.layer-swatch.crown { background: #f0deba; border: 1px solid #d4c19c; }
-.layer-swatch.implant { background: #94a3b8; }
-.layer-swatch.bone { background: #e2dacd; }
-
-/* Right Consultation Details Panel */
-.patient-details-card {
+.patient-brand-tag {
   display: flex;
-  flex-direction: column;
-  gap: 20px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--pat-green);
 }
 
-.consult-card {
+.brand-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pat-green);
+}
+
+.patient-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-patient-ghost {
+  border: 1px solid var(--pat-border);
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 20px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  color: var(--pat-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-patient-ghost:hover {
+  background: var(--pat-mint);
+  border-color: #cbd5cb;
+}
+
+.btn-patient-doctor {
+  border: 1px solid var(--pat-border);
+  background: #ffffff;
+  color: var(--pat-green-dark);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-patient-doctor:hover {
+  background: var(--pat-mint);
+  border-color: var(--pat-green);
+}
+
+/* Medical Report Shell (Hoja Médica) */
+.patient-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 56px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-.consult-card h2 {
-  font-size: 15px;
-  font-weight: 700;
-  color: #0f172a;
+/* Header */
+.patient-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 4px 4px;
 }
 
-/* Odontogram Styles */
-.odontogram-container {
+.patient-brand {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pat-green);
+}
+
+.patient-header h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--pat-ink);
+  letter-spacing: -0.4px;
+}
+
+.patient-header p {
+  margin: 0;
+  color: var(--pat-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Cards */
+.patient-card {
+  background: var(--pat-paper);
+  border: 1px solid var(--pat-border);
+  border-radius: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.patient-card h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--pat-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-icon {
+  font-size: 16px;
+}
+
+.patient-note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #334440;
+  white-space: pre-wrap;
+}
+
+.patient-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--pat-muted);
+  line-height: 1.5;
+}
+
+/* Photos Grid */
+.patient-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.patient-photos figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.patient-photos img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--pat-border);
+  background: var(--pat-mint);
+}
+
+.patient-photos figcaption {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pat-muted);
+  text-align: center;
+}
+
+/* Odontogram */
+.odontogram-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .odontogram-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: 12px;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .odontogram-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--pat-ink);
 }
 
 .odontogram-badge {
-  font-size: 11px;
-  font-weight: 600;
-  background: #e0f2fe;
-  color: #0284c7;
-  padding: 2px 8px;
-  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--pat-mint);
+  color: var(--pat-green-dark);
+  padding: 2px 7px;
+  border-radius: 10px;
 }
 
 .odontogram-legend {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   font-size: 11px;
-  color: #64748b;
+  color: var(--pat-muted);
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   display: inline-block;
 }
 
-.dot.present { background: #10b981; }
-.dot.missing { background: #f59e0b; }
+.dot.present { background: var(--pat-green); }
+.dot.missing { background: var(--pat-orange); }
 .dot.planned { background: #6366f1; }
+
+.odontogram-scroll-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0;
+}
 
 .odontogram-rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  min-width: 480px;
 }
 
 .arch-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: #f8fafc;
-  padding: 6px 10px;
-  border-radius: 10px;
-  border: 1px solid #f1f5f9;
+  gap: 4px;
+  background: var(--pat-mint);
+  padding: 6px 8px;
+  border-radius: 8px;
 }
 
 .arch-indicator,
 .arch-side-label {
-  font-size: 10px;
-  font-weight: 700;
-  color: #94a3b8;
-  width: 24px;
+  font-size: 8px;
+  font-weight: 800;
+  color: var(--pat-green-dark);
+  width: 20px;
   text-align: center;
-  user-select: none;
 }
 
 .teeth-list {
@@ -318,32 +308,31 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 4px 2px;
+  padding: 3px 1px;
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border: 1px solid #d4deda;
+  border-radius: 5px;
   cursor: pointer;
-  min-width: 26px;
+  min-width: 24px;
+  flex: 1;
   transition: all 0.15s ease;
-  position: relative;
 }
 
 .tooth-btn:hover {
-  background: #f0fdf4;
-  border-color: #86efac;
-  transform: translateY(-1px);
+  border-color: var(--pat-green);
+  background: #f7faf8;
 }
 
 .tooth-btn.selected {
   background: #eef2ff !important;
   border-color: #6366f1 !important;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
 }
 
 .tooth-fdi-label {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
-  color: #475569;
+  color: var(--pat-muted);
   line-height: 1;
   margin-bottom: 2px;
 }
@@ -351,19 +340,20 @@
 .tooth-svg {
   width: 14px;
   height: 16px;
-  fill: #e2e8f0;
-  stroke: #94a3b8;
-  stroke-width: 1.5;
+  fill: #edf1e6;
+  stroke: #c4d0b6;
+  stroke-width: 1.2;
 }
 
 .status-present .tooth-svg {
   fill: #d1fae5;
-  stroke: #10b981;
+  stroke: var(--pat-green);
 }
 
 .status-missing .tooth-svg {
   fill: #fef3c7;
-  stroke: #f59e0b;
+  stroke: var(--pat-orange);
+  stroke-dasharray: 2 1;
 }
 
 .status-planned .tooth-svg {
@@ -371,10 +361,15 @@
   stroke: #6366f1;
 }
 
+.status-third-molar .tooth-svg {
+  fill: #f1f5f9;
+  stroke: #cbd5e1;
+}
+
 .tooth-groove {
   fill: none;
   stroke: inherit;
-  stroke-width: 1;
+  stroke-width: 0.8;
 }
 
 .plan-marker {
@@ -384,118 +379,167 @@
 }
 
 .midline-right {
-  margin-right: 6px;
+  margin-right: 5px;
 }
 
-/* Selected Tooth Detail Box */
-.tooth-detail-card {
+/* Tooth Detail in Odontogram */
+.tooth-detail {
+  border-top: 1px solid var(--pat-border);
+  padding-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
 }
 
-.detail-header-row {
+.tooth-detail strong {
+  font-size: 13.5px;
+  color: var(--pat-ink);
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.tooth-name-title {
-  font-size: 16px;
+.status-chip {
+  font-size: 10px;
   font-weight: 700;
-  color: #0f172a;
-}
-
-.tooth-status-pill {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 20px;
+  border-radius: 999px;
+  padding: 2px 8px;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
 }
 
-.tooth-status-pill.planned {
+.status-chip.planned {
   background: #e0e7ff;
   color: #4338ca;
 }
 
-.tooth-status-pill.present {
-  background: #d1fae5;
-  color: #065f46;
+.status-chip.present {
+  background: var(--pat-mint);
+  color: var(--pat-green-dark);
 }
 
-.tooth-status-pill.missing {
+.status-chip.missing {
   background: #fef3c7;
   color: #92400e;
 }
 
-.procedure-summary-box {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 14px;
+.tooth-quote {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  border-left: 3px solid var(--pat-green);
+  padding-left: 10px;
+  color: #3c4f4b;
+}
+
+/* 3D Viewport Box inside Card */
+.patient-3d-card {
+  padding-bottom: 14px;
+}
+
+.patient-viewport-box {
+  position: relative;
+  height: 380px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--pat-border);
+  background: radial-gradient(ellipse at 50% 40%, #2f4542 0%, #1c2e2c 60%, #13201e 100%);
+}
+
+.patient-viewport-box .viewport {
+  height: 100% !important;
+  min-height: 100% !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.patient-layers-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 4px 0;
+  font-size: 11.5px;
+  color: var(--pat-muted);
+}
+
+.layer-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.swatch.arch { background: #88c2b0; }
+.swatch.crown { background: #f0deba; border: 1px solid #d4c19c; }
+.swatch.implant { background: #94a3b8; }
+
+/* Plan List */
+.plan-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.procedure-badge {
-  font-size: 12px;
-  font-weight: 700;
-  color: #2563eb;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.spec-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 8px;
-  font-size: 12px;
 }
 
-.spec-item {
-  background: #ffffff;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
+.plan-list > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--pat-mint);
+  border-radius: 10px;
 }
 
-.spec-item dt {
-  color: #64748b;
-  font-size: 10px;
-  text-transform: uppercase;
-  font-weight: 600;
+.plan-list strong {
+  font-size: 13px;
+  color: var(--pat-green-dark);
 }
 
-.spec-item dd {
-  font-weight: 700;
-  color: #1e293b;
-  margin-top: 2px;
+.plan-list small {
+  color: var(--pat-muted);
+  font-size: 11.5px;
+  text-align: right;
 }
 
-/* Treatment Timeline */
-.treatment-timeline {
+@media (max-width: 560px) {
+  .plan-list > div {
+    flex-direction: column;
+    gap: 3px;
+  }
+  .plan-list small {
+    text-align: left;
+  }
+}
+
+/* Timeline */
+.timeline-steps {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.timeline-step {
+.timeline-item {
   display: flex;
   align-items: flex-start;
   gap: 12px;
 }
 
-.step-num {
+.step-circle {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #e2e8f0;
-  color: #475569;
+  background: #e2e8e5;
+  color: var(--pat-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -504,55 +548,95 @@
   flex-shrink: 0;
 }
 
-.timeline-step.completed .step-num {
-  background: #10b981;
+.timeline-item.done .step-circle {
+  background: var(--pat-green);
   color: #ffffff;
 }
 
-.timeline-step.current .step-num {
+.timeline-item.current .step-circle {
   background: #2563eb;
   color: #ffffff;
 }
 
-.step-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.step-title {
+.timeline-item strong {
   font-size: 13px;
-  font-weight: 700;
-  color: #1e293b;
+  color: var(--pat-ink);
+  display: block;
 }
 
-.step-desc {
+.timeline-item p {
+  margin: 2px 0 0;
   font-size: 12px;
-  color: #64748b;
-  line-height: 1.4;
+  color: var(--pat-muted);
+  line-height: 1.45;
 }
 
-/* Clinic Contact Box */
-.clinic-contact-card {
+/* WhatsApp Card */
+.whatsapp-card {
+  background: linear-gradient(135deg, #f0fdf4 0%, #eef5f2 100%);
+  border: 1px solid #c7e3d8;
+  gap: 12px;
+}
+
+.whatsapp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #25d366;
+  color: #ffffff;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(37, 211, 102, 0.25);
+  transition: all 0.15s ease;
+  align-self: flex-start;
+}
+
+.whatsapp-btn:hover {
+  background: #20ba5a;
+  transform: translateY(-1px);
+}
+
+/* Footer */
+.patient-footer {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%);
-  border: 1px solid #bbf7d0;
-  border-radius: 12px;
-  padding: 16px;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  color: var(--pat-muted);
+  font-size: 11.5px;
+  padding-top: 10px;
 }
 
-.clinic-contact-card h3 {
-  font-size: 14px;
-  font-weight: 700;
-  color: #065f46;
-  margin: 0;
+.btn-link {
+  background: transparent;
+  border: none;
+  color: var(--pat-green);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  font-size: 11.5px;
 }
 
-.clinic-contact-card p {
-  font-size: 12px;
-  color: #166534;
-  margin: 0;
-  line-height: 1.5;
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .patient-shell {
+    padding: 16px 12px 48px;
+    gap: 10px;
+  }
+  .patient-card {
+    padding: 14px;
+    border-radius: 12px;
+  }
+  .patient-header h1 {
+    font-size: 22px;
+  }
+  .patient-viewport-box {
+    height: 300px;
+  }
 }

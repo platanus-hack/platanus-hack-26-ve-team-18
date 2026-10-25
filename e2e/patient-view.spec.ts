@@ -1,13 +1,17 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Patient Consultation View', () => {
-  test('direct navigation via #patient hash renders patient portal', async ({ page }) => {
+  test('direct navigation via #patient hash renders patient medical sheet with pre-loaded demo', async ({ page }) => {
     await page.goto('/#patient');
 
-    // Verify patient container is displayed immediately
-    await expect(page.locator('.patient-container')).toBeVisible();
-    await expect(page.locator('.stage-viewport-wrapper')).toBeVisible();
+    // Verify patient medical sheet is displayed immediately
+    await expect(page.locator('.patient-shell')).toBeVisible();
+    await expect(page.locator('.patient-header h1')).toContainText('Informe para Sofia M.');
+    await expect(page.locator('.patient-viewport-box')).toBeVisible();
     await expect(page.locator('.odontogram-container')).toBeVisible();
+
+    // Verify photos card is rendered
+    await expect(page.locator('.patient-photos img')).toHaveCount(3);
   });
 
   test('odontogram renders all 32 FDI teeth and selecting updates consultation details', async ({ page }) => {
@@ -29,7 +33,7 @@ test.describe('Patient Consultation View', () => {
     await expect(tooth21).toHaveClass(/selected/);
 
     // Verify consultation card updates
-    const title = page.locator('.tooth-name-title');
+    const title = page.locator('.tooth-detail strong');
     await expect(title).toContainText('FDI 21');
     await expect(title).toContainText('Incisivo Central');
 
@@ -65,13 +69,13 @@ test.describe('Patient Consultation View', () => {
     await page.goto('/#patient');
 
     // Check WhatsApp link has wa.me scheme
-    const waLink = page.locator('a.patient-btn-whatsapp').first();
+    const waLink = page.locator('a.whatsapp-btn').first();
     await expect(waLink).toBeVisible();
     const href = await waLink.getAttribute('href');
     expect(href).toContain('https://wa.me/?text=');
 
     // Check Share button
-    const shareBtn = page.locator('button:has-text("Compartir Enlace")');
+    const shareBtn = page.locator('button:has-text("Compartir")').first();
     await expect(shareBtn).toBeVisible();
   });
 });

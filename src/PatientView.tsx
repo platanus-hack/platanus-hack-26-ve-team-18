@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
-import type { ModelPart } from './models';
+import { useState, useMemo, useEffect } from 'react';
+import type { ModelPart, Vec3 } from './models';
 import type { ToothCase } from './tooth-types';
-import type { RestorationAssembly } from './restoration-types';
+import type { RestorationAssembly, RestorationSpec } from './restoration-types';
 import { Viewport } from './Viewport';
 import { ToothOdontogram } from './ToothOdontogram';
 import { toothArch, toothName } from './teeth';
+import { generateRestoration } from './restoration-geometry';
+import { importModels } from './import-models';
 import './patient-view.css';
 
 interface PatientViewProps {
@@ -36,6 +38,27 @@ export function toothNameEs(code: number): string {
   return `${names[pos - 1]} ${arch} ${side}`;
 }
 
+const DEMO_SPEC: RestorationSpec = {
+  version: 'implant-assembly/v1',
+  fdi: 21,
+  parentPartId: 'upper-arch',
+  anatomy: 'incisor',
+  frame: {
+    origin: [0, 0, 0] as Vec3,
+    u: [1, 0, 0] as Vec3,
+    v: [0, 1, 0] as Vec3,
+    up: [0, 0, 1] as Vec3,
+  },
+  parameters: {
+    fixture: { radius: 1.9, length: 11.5, depth: 1.5, taper: 0.15 },
+    abutment: { radius: 1.7, height: 2.5, emergenceRadius: 2.1, angleX: 0, angleY: 0 },
+    crown: { width: 8.5, depth: 7.2, height: 10.0, cuspHeight: 1.2, rotation: 0 },
+  },
+  provenance: 'clinician-entered',
+  units: 'file units (u)',
+  source: 'Demo patient restoration',
+};
+
 export function PatientView({
   parts,
   referenceParts = [],
@@ -46,39 +69,114 @@ export function PatientView({
   onSelectTooth,
   onClose,
 }: PatientViewProps) {
+  const isDemoMode = parts.length === 0;
+
   // Layer visibility toggles
   const [showArch, setShowArch] = useState(true);
   const [showCrown, setShowCrown] = useState(true);
   const [showImplant, setShowImplant] = useState(true);
   const [showBone, setShowBone] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [demoArchParts, setDemoArchParts] = useState<ModelPart[]>([]);
 
-  // Default to first planned tooth or FDI 21 / 11 if none selected
-  const activeFdi = useMemo(() => {
-    if (selectedFdi && selectedFdi >= 11 && selectedFdi <= 48) return selectedFdi;
-    const firstAssembly = assemblies[0]?.spec.fdi;
-    if (firstAssembly) return firstAssembly;
-    const firstMissing = Object.entries(toothData.teeth).find(([, r]) => r.status === 'missing');
-    if (firstMissing) return Number(firstMissing[0]);
-    return 21; // Default friendly upper central incisor
-  }, [selectedFdi, assemblies, toothData.teeth]);
+  // Default patient info
+  const patientName = isDemoMode ? 'Sofia M.' : 'Paciente';
+  const caseId = isDemoMode ? 'PLT-2026-084' : 'CASO-ACTIVO';
+  const doctorNote = isDemoMode
+    ? 'Evaluación y planificación para rehabilitación de pieza dental en sector anterosuperior (diente FDI 21). El reborde alveolar presenta adecuada disponibilidad ósea en el estudio tomográfico CBCT. Se planificó la colocación de un implante cónico de titanio biocompatible con carga diferida y la posterior confección de una corona estética de circonio anatómico con perfil de emergencia natural.'
+    : 'Planificación de tratamiento dental y rehabilitación personalizada.';
 
-  // Find restoration assembly for the active tooth if any
-  const assembly = useMemo(() => {
-    return assemblies.find(a => a.spec.fdi === activeFdi);
-  }, [assemblies, activeFdi]);
+  // In demo mode, load sample bite arch
+  useEffect(() => {
+    if (!isDemoMode) return;
+    let cancelled = false;
+    fetch('/patient-demo/bite1.ply')
+      .then(res => {
+        if (!res.ok) throw new Error('No se pudo cargar la arcada de demostración');
+        return res.blob();
+      })
+      .then(blob => {
+        if (cancelled) return;
+        const file = new File([blob], 'bite1.ply', { type: 'application/octet-stream' });
+        return importModels([file]);
+      })
+      .then(res => {
+        if (!cancelled && res && res.parts.length > 0) {
+          setDemoArchParts(res.parts.map(p => ({ ...p, role: 'upper' as const })));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isDemoMode]);
 
-  const toothRecord = toothData.teeth[activeFdi];
-  const isPlanned = !!assembly || toothRecord?.restoration === 'implant';
-  const isMissing = toothRecord?.status === 'missing';
-  const isPresent = toothRecord?.status === 'present';
+  // Construct active parts for 3D viewing
+  const activeParts = useMemo(() => {
+    if (!isDemoMode) return parts;
 
-  // Compute customized opacities for patient view layers
+    // Generate demo 3D restoration parts (fixture, abutment, crown for FDI 21)
+    const demoMeshes = generateRestoration(DEMO_SPEC);
+    const generatedParts: ModelPart[] = demoMeshes.map(mesh => ({
+      id: `demo-${mesh.component}`,
+      name:
+        mesh.component === 'crown'
+          ? 'Corona de circonio FDI 21'
+          : mesh.component === 'abutment'
+          ? 'Pilar protésico'
+          : 'Implante de titanio Ø3.8×11.5mm',
+      fileName: `demo-${mesh.component}.stl`,
+      positions: mesh.positions,
+      normals: mesh.normals,
+      triangles: mesh.triangles,
+      vertices: mesh.vertices,
+      closed: mesh.closed,
+      dimensions: mesh.dimensions,
+      offset: [0, 0, 0] as Vec3,
+      rotation: [0, 0, 0] as Vec3,
+      visible: true,
+      restoration: {
+        component: mesh.component,
+        assemblyId: 'demo-assembly',
+        parentPartId: 'upper-arch',
+      },
+    }));
+
+    return [...demoArchParts, ...generatedParts];
+  }, [isDemoMode, parts, demoArchParts]);
+
+  // Synthetic tooth case for demo
+  const effectiveTeeth = useMemo(() => {
+    if (!isDemoMode && Object.keys(toothData.teeth).length > 0) return toothData.teeth;
+    const teethMap: ToothCase['teeth'] = {};
+    for (let fdi = 11; fdi <= 48; fdi++) {
+      if (fdi % 10 >= 1 && fdi % 10 <= 8) {
+        if (fdi === 21) {
+          teethMap[fdi] = { status: 'missing', restoration: 'implant', note: 'Implante planificado' };
+        } else if (fdi % 10 === 8) {
+          teethMap[fdi] = { status: 'unreviewed', restoration: 'none', note: 'Tercer molar ausente' };
+        } else {
+          teethMap[fdi] = { status: 'present', restoration: 'none', note: '' };
+        }
+      }
+    }
+    return teethMap;
+  }, [isDemoMode, toothData.teeth]);
+
+  // Default to FDI 21 or selected
+  const activeFdi = selectedFdi && selectedFdi >= 11 && selectedFdi <= 48 ? selectedFdi : 21;
+
+  // Selected tooth properties
+  const isSelectedPlanned = activeFdi === 21 || effectiveTeeth[activeFdi]?.restoration === 'implant';
+  const isSelectedMissing = effectiveTeeth[activeFdi]?.status === 'missing';
+  const isSelectedPresent = effectiveTeeth[activeFdi]?.status === 'present';
+
+  // Compute customized opacities for layers
   const computedOpacities = useMemo(() => {
     const next: Record<string, number> = { ...initialOpacities };
 
-    parts.forEach(part => {
-      const isRestoration = part.id.includes('restoration') || part.restoration;
+    activeParts.forEach(part => {
+      const isRestoration = part.id.includes('restoration') || part.id.startsWith('demo-') || part.restoration;
       const component = part.restoration?.component;
 
       if (!isRestoration) {
@@ -86,7 +184,6 @@ export function PatientView({
       } else if (component === 'crown') {
         next[part.id] = showCrown ? 1 : 0;
       } else {
-        // fixture or abutment
         next[part.id] = showImplant ? 1 : 0;
       }
     });
@@ -96,7 +193,7 @@ export function PatientView({
     });
 
     return next;
-  }, [parts, referenceParts, initialOpacities, showArch, showCrown, showImplant, showBone]);
+  }, [activeParts, referenceParts, initialOpacities, showArch, showCrown, showImplant, showBone]);
 
   const handleShare = () => {
     const url = new URL(window.location.href);
@@ -108,79 +205,125 @@ export function PatientView({
   };
 
   const whatsappMessage = encodeURIComponent(
-    `Hola, estuve revisando mi plan de tratamiento 3D de Platanus Dental para el diente FDI ${activeFdi} (${toothNameEs(activeFdi)}). Quisiera coordinar los siguientes pasos.`
+    `Hola, soy ${patientName} y estuve revisando mi informe dental 3D de Platanus Dental (Caso ${caseId}) para el diente FDI ${activeFdi} (${toothNameEs(activeFdi)}). Quisiera coordinar los siguientes pasos.`
   );
 
   return (
-    <div className="patient-container" aria-label="Portal de Consulta del Paciente">
-      {/* Top Bar */}
-      <header className="patient-topbar">
-        <div className="patient-topbar-left">
-          <div className="brand">
-            <span className="brand-mark" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-            <span>
-              Platanus Dental <span className="brand-divider">/</span> <strong>Consulta 3D</strong>
-            </span>
+    <div className="patient-medical-page" aria-label="Informe Clínico del Paciente">
+      {/* Top Clinical Header Bar */}
+      <div className="patient-nav-bar">
+        <div className="patient-nav-inner">
+          <div className="patient-brand-tag">
+            <span className="brand-dot" />
+            <span>PLATANUS DENTAL</span>
           </div>
-          <div className="patient-title-group">
-            <h1>Plan de Tratamiento y Restauración Guiada</h1>
-            <p className="patient-subtitle">
-              Visualización 3D interactiva para el paciente · Planificación asistida por IA y CBCT
-            </p>
+          <div className="patient-nav-actions">
+            <button type="button" className="btn-patient-ghost" onClick={handleShare}>
+              {copiedLink ? '✓ Enlace Copiado' : '🔗 Compartir'}
+            </button>
+            <button type="button" className="btn-patient-doctor" onClick={onClose}>
+              🩺 Modo Doctor
+            </button>
           </div>
         </div>
+      </div>
 
-        <div className="patient-topbar-actions">
-          <button
-            type="button"
-            className="patient-btn patient-btn-outline"
-            onClick={handleShare}
-            title="Copiar enlace para el paciente"
-          >
-            {copiedLink ? '✓ Enlace Copiado' : '🔗 Compartir Enlace'}
-          </button>
-          <a
-            href={`https://wa.me/?text=${whatsappMessage}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="patient-btn patient-btn-whatsapp"
-            style={{ textDecoration: 'none' }}
-          >
-            💬 Contactar por WhatsApp
-          </a>
-          <button
-            type="button"
-            className="patient-btn patient-btn-outline"
-            onClick={onClose}
-          >
-            🩺 Modo Especialista
-          </button>
-        </div>
-      </header>
+      {/* Main Single-Column Medical Sheet (Hoja Médica) */}
+      <main className="patient-shell">
+        {/* Document Header */}
+        <header className="patient-header">
+          <span className="patient-brand">PLATANUS DENTAL · INFORME CLÍNICO 3D</span>
+          <h1>Informe para {patientName}</h1>
+          <p>
+            Caso #{caseId} · Compartido el 24 de octubre de 2026 · Planificación digital preliminar.
+            No sustituye una consulta presencial.
+          </p>
+        </header>
 
-      {/* Main Grid: Left 3D Viewport, Right Consultation Details */}
-      <main className="patient-content-grid">
-        {/* Left Column: 3D View */}
-        <section className="patient-stage-card" aria-label="Visualizador 3D">
-          <div className="stage-header">
-            <span className="stage-title">
-              <span className="dot present" />
-              Modelo Digital Tridimensional
-            </span>
-            <div className="stage-controls">
-              <span className="patient-subtitle">
-                {parts.length} estructuras dentales cargadas
+        {/* Card 1: Notas de tu dentista */}
+        <section className="patient-card">
+          <h2>
+            <span className="card-icon">📝</span>
+            Notas de tu dentista
+          </h2>
+          <p className="patient-note">{doctorNote}</p>
+        </section>
+
+        {/* Card 2: Tu revisión en fotos */}
+        <section className="patient-card">
+          <h2>
+            <span className="card-icon">📸</span>
+            Tu revisión en fotos
+          </h2>
+          <div className="patient-photos">
+            <figure>
+              <img src="/patient-demo/frontal.jpg" alt="Fotografía clínica frontal de tu boca" />
+              <figcaption>Vista Frontal</figcaption>
+            </figure>
+            <figure>
+              <img src="/patient-demo/upper.jpg" alt="Fotografía oclusal de tu arcada superior" />
+              <figcaption>Arcada Superior</figcaption>
+            </figure>
+            <figure>
+              <img src="/patient-demo/lower.jpg" alt="Fotografía oclusal de tu arcada inferior" />
+              <figcaption>Arcada Inferior</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        {/* Card 3: Tu odontograma */}
+        <section className="patient-card">
+          <h2>
+            <span className="card-icon">🦷</span>
+            Tu odontograma
+          </h2>
+          <ToothOdontogram
+            teeth={effectiveTeeth}
+            assemblies={assemblies}
+            selectedFdi={activeFdi}
+            onSelectFdi={onSelectTooth}
+          />
+          <div className="tooth-detail">
+            <strong>
+              Diente FDI {activeFdi} · {toothNameEs(activeFdi)}
+              <span
+                className={`status-chip ${
+                  isSelectedPlanned ? 'planned' : isSelectedMissing ? 'missing' : 'present'
+                }`}
+              >
+                {isSelectedPlanned
+                  ? 'Plan de implante'
+                  : isSelectedMissing
+                  ? 'Ausente estimado'
+                  : 'Presente natural'}
               </span>
-            </div>
+            </strong>
+            {isSelectedPlanned ? (
+              <p className="tooth-quote">
+                “Pieza planificada para rehabilitación con implante cónico de titanio grado 4 y corona
+                anatómica de circonio estético personalizada a tu mordida.”
+              </p>
+            ) : isSelectedMissing ? (
+              <p className="tooth-quote">“Espacio edéntulo evaluado para posible restauración protésica.”</p>
+            ) : (
+              <p className="tooth-quote">“Diente natural sano sin necesidad de intervención invasiva.”</p>
+            )}
           </div>
+        </section>
 
-          <div className="stage-viewport-wrapper">
+        {/* Card 4: Tu modelo 3D interactivo */}
+        <section className="patient-card patient-3d-card">
+          <h2>
+            <span className="card-icon">🧊</span>
+            Tu modelo 3D interactivo
+          </h2>
+          <p className="patient-hint">
+            Explora tu boca en 3D. Usa un dedo o el ratón para rotar, y pellizca para hacer zoom.
+          </p>
+
+          <div className="patient-viewport-box">
             <Viewport
-              parts={parts}
+              parts={activeParts}
               referenceParts={referenceParts}
               opacities={computedOpacities}
               report={null}
@@ -192,178 +335,124 @@ export function PatientView({
               onImport={() => {}}
               compact={false}
             />
-            <div className="stage-hint-badge">
-              Gira con clic izquierdo · Zoom con rueda · Desplaza con clic derecho
-            </div>
           </div>
 
           {/* Layer toggles */}
-          <div className="stage-layers-bar" aria-label="Capas visibles">
-            <span style={{ fontWeight: 600, marginRight: 4 }}>Capas:</span>
-            <label className="layer-toggle">
+          <div className="patient-layers-row">
+            <label className="layer-item">
               <input
                 type="checkbox"
                 checked={showArch}
                 onChange={e => setShowArch(e.target.checked)}
               />
-              <span className="layer-swatch teeth" />
+              <span className="swatch arch" />
               Tus dientes
             </label>
-            <label className="layer-toggle">
+            <label className="layer-item">
               <input
                 type="checkbox"
                 checked={showCrown}
                 onChange={e => setShowCrown(e.target.checked)}
               />
-              <span className="layer-swatch crown" />
+              <span className="swatch crown" />
               Corona de circonio
             </label>
-            <label className="layer-toggle">
+            <label className="layer-item">
               <input
                 type="checkbox"
                 checked={showImplant}
                 onChange={e => setShowImplant(e.target.checked)}
               />
-              <span className="layer-swatch implant" />
+              <span className="swatch implant" />
               Implante de titanio
             </label>
-            {referenceParts.length > 0 && (
-              <label className="layer-toggle">
-                <input
-                  type="checkbox"
-                  checked={showBone}
-                  onChange={e => setShowBone(e.target.checked)}
-                />
-                <span className="layer-swatch bone" />
-                Hueso alveolar (CBCT)
-              </label>
-            )}
           </div>
         </section>
 
-        {/* Right Column: Odontogram & Treatment Card */}
-        <aside className="patient-details-card" aria-label="Detalles de la Consulta">
-          {/* Odontogram Card */}
-          <div className="consult-card">
-            <ToothOdontogram
-              teeth={toothData.teeth}
-              assemblies={assemblies}
-              selectedFdi={activeFdi}
-              onSelectFdi={onSelectTooth}
-            />
+        {/* Card 5: Tu plan */}
+        <section className="patient-card">
+          <h2>
+            <span className="card-icon">📋</span>
+            Tu plan de tratamiento
+          </h2>
+          <div className="plan-list">
+            <div>
+              <strong>Implante FDI 21</strong>
+              <small>Incisivo Central Superior Izquierdo · Ø3.8 × 11.5 mm (Titanio)</small>
+            </div>
+            <div>
+              <strong>Pilar Protésico Anatómico</strong>
+              <small>Conexión cónica interna anti-rotacional · Altura 2.5 mm</small>
+            </div>
+            <div>
+              <strong>Corona Definitiva Estética</strong>
+              <small>Circonio monolítico de alta translucidez · FDI 21</small>
+            </div>
           </div>
+          <p className="patient-hint">
+            Métricas de tu caso: Arcada superior 78.4 mm · Distancia intercanina 34.2 mm · Oclusión estable.
+          </p>
+        </section>
 
-          {/* Tooth Treatment Detail Card */}
-          <div className="consult-card tooth-detail-card">
-            <div className="detail-header-row">
+        {/* Card 6: Fases del procedimiento */}
+        <section className="patient-card">
+          <h2>
+            <span className="card-icon">⏱️</span>
+            Fases del procedimiento
+          </h2>
+          <div className="timeline-steps">
+            <div className="timeline-item done">
+              <span className="step-circle">1</span>
               <div>
-                <span className="patient-subtitle">Diente seleccionado</span>
-                <h2 className="tooth-name-title">
-                  FDI {activeFdi} · {toothNameEs(activeFdi)}
-                </h2>
-              </div>
-              <span
-                className={`tooth-status-pill ${
-                  isPlanned ? 'planned' : isMissing ? 'missing' : 'present'
-                }`}
-              >
-                {isPlanned ? 'Implante Planificado' : isMissing ? 'Espacio Ausente' : 'Diente Natural'}
-              </span>
-            </div>
-
-            {isPlanned ? (
-              <div className="procedure-summary-box">
-                <div className="procedure-badge">
-                  <span>✦</span> Restauración Fija Guiada por Computadora
-                </div>
-                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#334155' }}>
-                  Se ha planificado la colocación de un implante dental de titanio de alta precisión,
-                  acompañado de una corona anatómica de circonio estético personalizada a tu mordida.
-                </p>
-
-                {assembly && (
-                  <dl className="spec-list">
-                    <div className="spec-item">
-                      <dt>Fijación Ósea</dt>
-                      <dd>Titanio biocompatible</dd>
-                    </div>
-                    <div className="spec-item">
-                      <dt>Corona Definitiva</dt>
-                      <dd>Circonio monolítico</dd>
-                    </div>
-                    <div className="spec-item">
-                      <dt>Emergencia Gingival</dt>
-                      <dd>Perfil estético natural</dd>
-                    </div>
-                    <div className="spec-item">
-                      <dt>Cirugía Guiada</dt>
-                      <dd>CBCT 3D milimétrico</dd>
-                    </div>
-                  </dl>
-                )}
-              </div>
-            ) : isMissing ? (
-              <div className="procedure-summary-box">
-                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#334155' }}>
-                  Este diente se encuentra actualmente ausente. La rehabilitación con un implante dental
-                  evitará la pérdida de hueso y devolverá la función masticatoria óptima.
-                </p>
-              </div>
-            ) : (
-              <div className="procedure-summary-box">
-                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#334155' }}>
-                  Diente natural evaluado. Se encuentra en correcta alineación y no requiere intervención quirúrgica.
-                </p>
-              </div>
-            )}
-
-            {/* Timeline */}
-            <div className="treatment-timeline">
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
-                Fases del Tratamiento
-              </span>
-              <div className="timeline-step completed">
-                <div className="step-num">1</div>
-                <div className="step-info">
-                  <span className="step-title">Diagnóstico Digital 3D</span>
-                  <span className="step-desc">Escaneo intraoral de alta definición y análisis de CBCT completados.</span>
-                </div>
-              </div>
-              <div className="timeline-step current">
-                <div className="step-num">2</div>
-                <div className="step-info">
-                  <span className="step-title">Colocación Quirúrgica Guiada</span>
-                  <span className="step-desc">Fijación del implante de titanio con guía quirúrgica milimétrica mínimamente invasiva.</span>
-                </div>
-              </div>
-              <div className="timeline-step">
-                <div className="step-num">3</div>
-                <div className="step-info">
-                  <span className="step-title">Corona Estética Definitiva</span>
-                  <span className="step-desc">Ajuste de la corona de circonio con color y textura idénticos a tus dientes naturales.</span>
-                </div>
+                <strong>Diagnóstico Digital 3D & CBCT</strong>
+                <p>Escaneo intraoral de alta definición y verificación tomográfica completada.</p>
               </div>
             </div>
-
-            {/* Clinic Card */}
-            <div className="clinic-contact-card">
-              <h3>¿Tienes dudas sobre tu procedimiento?</h3>
-              <p>
-                Tu especialista ha preparado esta simulación para garantizar el mejor resultado estético y funcional.
-                Escríbenos para confirmar tu fecha quirúrgica o resolver inquietudes.
-              </p>
-              <a
-                href={`https://wa.me/?text=${whatsappMessage}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="patient-btn patient-btn-whatsapp"
-                style={{ textDecoration: 'none', alignSelf: 'flex-start' }}
-              >
-                💬 Chatear con mi Clínica
-              </a>
+            <div className="timeline-item current">
+              <span className="step-circle">2</span>
+              <div>
+                <strong>Cirugía Guiada Mínimamente Invasiva</strong>
+                <p>Fijación del implante de titanio mediante férula quirúrgica de precisión milimétrica.</p>
+              </div>
+            </div>
+            <div className="timeline-item">
+              <span className="step-circle">3</span>
+              <div>
+                <strong>Corona Estética Definitiva</strong>
+                <p>Colocación de la corona de circonio translúcido con textura y color idénticos a tus dientes.</p>
+              </div>
             </div>
           </div>
-        </aside>
+        </section>
+
+        {/* Card 7: WhatsApp Contact */}
+        <section className="patient-card whatsapp-card">
+          <h2>
+            <span className="card-icon">💬</span>
+            ¿Tienes dudas sobre tu plan?
+          </h2>
+          <p className="patient-note">
+            Tu odontólogo especialista ha preparado este informe digital para que conozcas cada detalle. Si
+            deseas agendar tu cita quirúrgica o hacer alguna pregunta, contáctanos directamente.
+          </p>
+          <a
+            href={`https://wa.me/?text=${whatsappMessage}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="whatsapp-btn"
+          >
+            <span>💬</span> Escribe a tu clínica por WhatsApp
+          </a>
+        </section>
+
+        {/* Footer */}
+        <footer className="patient-footer">
+          <span>Platanus Dental v2 · Planificación Digital 3D</span>
+          <span>·</span>
+          <button type="button" className="btn-link" onClick={onClose}>
+            Modo Especialista
+          </button>
+        </footer>
       </main>
     </div>
   );

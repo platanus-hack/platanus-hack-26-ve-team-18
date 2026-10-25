@@ -23,13 +23,13 @@ test.describe('App Shell & Navigation', () => {
     // Click Vista Paciente
     await page.click('.patient-mode-toggle');
 
-    // Verify Patient View mounted
-    await expect(page.locator('.patient-container')).toBeVisible();
-    await expect(page.locator('.patient-title-group h1')).toContainText('Plan de Tratamiento');
+    // Verify Patient Medical Sheet mounted
+    await expect(page.locator('.patient-shell')).toBeVisible();
+    await expect(page.locator('.patient-header h1')).toContainText('Informe para');
     expect(page.url()).toContain('#patient');
 
-    // Switch back to Modo Especialista
-    await page.click('button:has-text("Modo Especialista")');
+    // Switch back to Modo Doctor
+    await page.click('button:has-text("Modo Doctor")');
 
     // Verify returned to Clinical Planning
     await expect(page.locator('.workspace')).toBeVisible();
