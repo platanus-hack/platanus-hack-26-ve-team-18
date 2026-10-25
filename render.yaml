@@ -3,7 +3,7 @@ services:
     name: cenflow-ph
     runtime: docker
     repo: https://github.com/Doble-2/platanus-hack-p2
-    branch: develop
+    branch: main
     plan: free
     region: oregon
     dockerfilePath: ./Dockerfile
