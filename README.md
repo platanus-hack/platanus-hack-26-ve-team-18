@@ -4,14 +4,14 @@
 
 <img src="./project-logo.png" alt="Céflow Project Logo" width="220" style="border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);" />
 
-[![Track: Three-Dimensional](https://img.shields.io/badge/Track-3D%20Three--Dimensional-0ea5e9?style=for-the-badge&logo=three.js)](https://cenflow-ph.onrender.com)
-[![Platanus Hack 26](https://img.shields.io/badge/Platanus%20Hack%2026-Team%2018-285ec7?style=for-the-badge)](https://cenflow-ph.onrender.com)
+[![Track: Three-Dimensional](https://img.shields.io/badge/Track-3D%20Three--Dimensional-0ea5e9?style=for-the-badge&logo=three.js)](https://ceflow-ph.onrender.com)
+[![Platanus Hack 26](https://img.shields.io/badge/Platanus%20Hack%2026-Team%2018-285ec7?style=for-the-badge)](https://ceflow-ph.onrender.com)
 [![Tests Passing](https://img.shields.io/badge/Tests-1%2C049%20Pass%20%7C%2010%20E2E-16a34a?style=for-the-badge)](https://github.com/platanus-hack/platanus-hack-26-ve-team-18)
 [![Client-Side Compute](https://img.shields.io/badge/Engine-Zero--Latency%20Web%20Workers-f59e0b?style=for-the-badge)](https://github.com/platanus-hack/platanus-hack-26-ve-team-18)
 
 **Revolucionando la planificación odontológica en casos complejos: de semanas a unas pocas horas.**
 
-[🚀 Demo en Vivo](https://cenflow-ph.onrender.com) · [👤 Portal del Paciente](https://cenflow-ph.onrender.com/#patient) · [📋 Documento del Proyecto](project-description.md)
+[🚀 Demo en Vivo](https://ceflow-ph.onrender.com) · [👤 Portal del Paciente](https://ceflow-ph.onrender.com/#patient) · [📋 Documento del Proyecto](project-description.md)
 
 </div>
 
