@@ -9,7 +9,8 @@
     "check": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "build": "pnpm check && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 5174"
+    "preview": "vite preview --host 127.0.0.1 --port 5174",
+    "start": "vite preview --host 0.0.0.0 --port ${PORT:-10000}"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.87",
