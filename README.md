@@ -4,8 +4,8 @@
 
 [![Track: Three-Dimensional](https://img.shields.io/badge/Track-3D%20Three--Dimensional-0ea5e9?style=for-the-badge&logo=three.js)](https://cenflow-ph.onrender.com)
 [![Platanus Hack 26](https://img.shields.io/badge/Platanus%20Hack%2026-Team%2018-285ec7?style=for-the-badge)](https://cenflow-ph.onrender.com)
-[![Tests Passing](https://img.shields.io/badge/Tests-1%2C031%20Pass%20%7C%209%20E2E-16a34a?style=for-the-badge)](https://github.com/Doble-2/platanus-hack-p2)
-[![Client-Side Compute](https://img.shields.io/badge/Engine-Zero--Latency%20Web%20Workers-f59e0b?style=for-the-badge)](https://github.com/Doble-2/platanus-hack-p2)
+[![Tests Passing](https://img.shields.io/badge/Tests-1%2C031%20Pass%20%7C%209%20E2E-16a34a?style=for-the-badge)](https://github.com/platanus-hack/platanus-hack-26-ve-team-18)
+[![Client-Side Compute](https://img.shields.io/badge/Engine-Zero--Latency%20Web%20Workers-f59e0b?style=for-the-badge)](https://github.com/platanus-hack/platanus-hack-26-ve-team-18)
 
 **Revolucionando la planificación odontológica en casos complejos: de semanas a unas pocas horas.**
 
@@ -142,8 +142,8 @@ Céflow incluye una vista especializada en formato de **hoja médica interactiva
 ### Instalación y Ejecución
 ```sh
 # 1. Clonar el repositorio
-git clone https://github.com/Doble-2/platanus-hack-p2.git
-cd platanus-hack-p2
+git clone https://github.com/platanus-hack/platanus-hack-26-ve-team-18.git
+cd platanus-hack-26-ve-team-18
 
 # 2. Instalar dependencias
 pnpm install

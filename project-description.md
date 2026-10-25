@@ -4,7 +4,7 @@
 > **Platanus Hack 26: Caracas ft. Yummy — Team 18**  
 > **Demo en vivo:** [https://cenflow-ph.onrender.com](https://cenflow-ph.onrender.com)  
 > **Portal de Paciente:** [https://cenflow-ph.onrender.com/#patient](https://cenflow-ph.onrender.com/#patient)  
-> **Código fuente:** [https://github.com/Doble-2/platanus-hack-p2](https://github.com/Doble-2/platanus-hack-p2)
+> **Código fuente:** [https://github.com/platanus-hack/platanus-hack-26-ve-team-18](https://github.com/platanus-hack/platanus-hack-26-ve-team-18)
 
 ---
 
