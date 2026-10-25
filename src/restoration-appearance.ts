@@ -1,4 +1,5 @@
 import type { ModelPart } from './models.ts';
+import { crownEnamel } from './crown-enamel.ts';
 
 export type RestorationComponent = NonNullable<ModelPart['restoration']>['component'];
 
@@ -19,9 +20,9 @@ export interface RestorationAppearance {
 }
 
 const appearances: Record<RestorationComponent, Omit<RestorationAppearance, 'key' | 'component'>> = {
-  crown: { finish: 'ceramic-concept', roughness: 0.42, metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.35, envMapIntensity: 0.35 },
+  crown: { finish: 'ceramic-concept', roughness: 0.42, metalness: 0, clearcoat: 0.16, clearcoatRoughness: 0.4, envMapIntensity: 0.3 },
   abutment: { finish: 'metal-concept', roughness: 0.36, metalness: 0.55, clearcoat: 0, clearcoatRoughness: 0, envMapIntensity: 0.8 },
-  // Matte and untextured: a smooth placeholder must not read as threaded hardware.
+  // Display values do not identify an alloy or a manufacturer's surface finish.
   fixture: { finish: 'metal-concept', roughness: 0.48, metalness: 0.6, clearcoat: 0, clearcoatRoughness: 0, envMapIntensity: 0.8 },
 };
 
@@ -34,7 +35,7 @@ export function restorationAppearance(part: ModelPart): RestorationAppearance | 
   if (!component || !(component in appearances) || part.reference) return null;
   const appearance = appearances[component];
   const roughness = part.presentationRoughness ?? appearance.roughness;
-  const key = `restoration-${component}-v1${roughness === appearance.roughness ? '' : `-roughness-${roughness}`}`;
+  const key = `restoration-${component}-v2${crownEnamel(part) ? '-enamel' : ''}${roughness === appearance.roughness ? '' : `-roughness-${roughness}`}`;
   return { key, component, ...appearance, roughness };
 }
 

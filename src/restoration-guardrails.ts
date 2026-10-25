@@ -180,15 +180,15 @@ export function evaluateRestorationGuardrails(input: RestorationGuardrailInput):
     value: typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null, units: 'mm',
     provenance: feedback?.provenance ?? 'not-established' });
   issues.push({ id: 'subcrestal-placement', components: ['fixture'], status: 'unknown',
-    summary: 'Fixture depth is an offset from the construction origin, not a measured implant-platform-to-bone-crest depth. Case feedback is not an applied clinical target.',
+    summary: 'Fixture depth is an offset from the construction origin, not a measured implant-platform-to-bone-crest depth. A recorded minimum target is not a measured result.',
     actual: { nominalDepthFromSiteOrigin: p.fixture.depth, nominalDepthUnits: 'file units (u)', measuredSubcrestalDepthMm: null, verifiedMmPerUnit: null, reviewedBoneCrest: null, feedbackSource: feedback?.source ?? null },
-    target: feedbackTarget(feedback?.subcrestalDepthMm, `${feedbackLabel} subcrestal-depth feedback only; review platform/crest datum, applicability and tolerance before assessment.`),
+    target: feedbackTarget(feedback?.subcrestalDepthMm, `${feedbackLabel} minimum platform depth below the reviewed bone crest; clinical applicability and measurement remain unassessed.`),
     missingEvidence: ['Independent verified scale and registration in the evaluated revision.', 'Reviewed bone crest, selected implant platform/axis and implant-system context.', 'Clinician review of target applicability, its reference surface and tolerance.'],
     suggestions: [suggestion('fixture', 'collect-evidence', ['fixture.depth'], 'Resolve the target and bone/scale evidence first. Never copy a millimetre target into fixture.depth or use the gingival surface as bone crest.')] });
   issues.push({ id: 'adjacent-root-clearance', components: ['fixture'], status: 'unknown',
-    summary: 'Crown contacts and a scanned gap do not measure fixture-to-root clearance. Adjacent-teeth feedback needs an explicit surface/distance definition.',
+    summary: 'Crown contacts and a scanned gap do not measure fixture-to-root clearance. The reference is the implant outer surface to each adjacent root, not the visible crown.',
     actual: { measuredFixtureToRootClearanceMm: null, measuredFixtureToAdjacentToothClearanceMm: null, reviewedNeighborRoots: null, verifiedMmPerUnit: null, feedbackSource: feedback?.source ?? null },
-    target: feedbackTarget(feedback?.adjacentToothClearanceMm, `${feedbackLabel} minimum adjacent-teeth clearance feedback only; resolve tooth/root/implant surfaces and uncertainty before assessment.`),
+    target: feedbackTarget(feedback?.adjacentToothClearanceMm, `${feedbackLabel} minimum implant outer-surface clearance to each adjacent root; reviewed root geometry, scale and registration are required.`),
     missingEvidence: ['Reviewed neighboring tooth/root geometry and other relevant anatomical exclusions.', 'Verified physical scale, source registration and a defined fixture-to-target measurement method.', 'Clinician review of clearance-target applicability; crown distance cannot substitute for root distance.'],
     suggestions: [suggestion('fixture', 'collect-evidence', ['fixture.radius', 'fixture.depth', 'fixture.length'], 'Collect and review the missing evidence; no movement of original meshes or automatic fixture relocation follows from a crown-gap measurement.')] });
 

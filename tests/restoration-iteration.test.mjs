@@ -4,6 +4,7 @@ import { fitRestoration } from '../src/restoration-fitting.ts';
 import { acceptsFitCandidate } from '../src/restoration-fit-selection.ts';
 import { planOcclusalAdaptation } from '../src/restoration-adaptation.ts';
 import { generateRestoration } from '../src/restoration-geometry.ts';
+import { CROWN_THETA, CROWN_WALL } from '../src/crown-anatomy.ts';
 
 const spec = () => ({ version: 'implant-assembly/v1', fdi: 36, parentPartId: 'lower', frame: { origin: [0,0,0], u: [1,0,0], v: [0,1,0], up: [0,0,1] }, parameters: { fixture: { radius: 1, length: 5, depth: 0, taper: .1 }, abutment: { radius: .8, emergenceRadius: 1.1, height: 1, angleX: 0, angleY: 0 }, crown: { width: 4, depth: 4, height: 3, cuspHeight: 0, rotation: 0 } }, anatomy: 'molar', provenance: 'hypothesized', units: 'file units (u)', source: 'Synthetic bounded iteration regression', qualityContext: { version: 'restoration-quality-context/v1', units: 'file units (u)', neighbors: [{ id: 'lower:T1', mesiodistal: 5, buccolingual: 5, height: 5, method: 'Synthetic dimensions', provenance: 'measured' }], gapWidth: { value: 5, method: 'Synthetic facing envelope', provenance: 'measured' }, availableHeight: { value: 6, method: 'Synthetic headroom', provenance: 'measured' }, bitePoseVerified: true } });
 const plane = (axis, value) => { const p=(a,b)=>{const v=[a,b];v.splice(axis,0,value);return v;}; return Float32Array.from([p(-10,-10),p(10,-10),p(10,10),p(-10,-10),p(10,10),p(-10,10)].flat()); };
@@ -28,10 +29,27 @@ test('removing capped touch-only evidence triggers a complete follow-up before c
 
 test('retrying locally adapted anatomy preserves its cut instead of stacking another distortion allowance', async () => {
   const initial = spec(); delete initial.qualityContext;
-  const surfaces = [{ id: 'opposing', role: 'antagonist', positions: plane(2, 3.2), targetGap: .05 }];
+  const crown = generateRestoration(initial).find(mesh => mesh.component === 'crown').positions;
+  // Constructed wall triangles precede the occlusal table. Measure their
+  // emitted height so a scalloped rim stays protected while the cusps still
+  // require a real cut; a fixed plane can cut the wall of a new template.
+  const wallEnd = (CROWN_WALL - 1) * CROWN_THETA * 2 * 9;
+  let top = -Infinity, wallTop = -Infinity;
+  for (let i = 2; i < crown.length; i += 3) {
+    top = Math.max(top, crown[i]);
+    if (i < wallEnd) wallTop = Math.max(wallTop, crown[i]);
+  }
+  const gap = .05, planeHeight = (top + wallTop + gap) / 2;
+  assert.ok(planeHeight - gap > wallTop, 'The requested cut must clear every protected wall/rim vertex.');
+  const surfaces = [{ id: 'opposing', role: 'antagonist', positions: plane(2, planeHeight), targetGap: gap }];
   const proposal = await planOcclusalAdaptation(initial, surfaces);
-  assert.equal(proposal.report.status, 'adapted');
-  const retry = await fitRestoration({ spec: proposal.spec, surfaces: [{ ...surfaces[0], positions: plane(2, 3.15) }], options: { maxCandidates: 24, samplesPerSurface: 32 } });
+  assert.equal(proposal.report.status, 'adapted', proposal.report.reason);
+  assert.ok(proposal.report.requiredVertices > 0 && proposal.report.maxReduction > initial.parameters.crown.height * .02, 'The initial proposal must make a nontrivial cut.');
+  const adapted = generateRestoration(proposal.spec).find(mesh => mesh.component === 'crown').positions;
+  let adaptedTop = -Infinity;
+  for (let i = 2; i < adapted.length; i += 3) adaptedTop = Math.max(adaptedTop, adapted[i]);
+  assert.ok(top - adaptedTop > initial.parameters.crown.height * .02, 'The emitted crown must retain the actual cut.');
+  const retry = await fitRestoration({ spec: proposal.spec, surfaces: [{ ...surfaces[0], positions: plane(2, planeHeight - .05) }], options: { maxCandidates: 24, samplesPerSurface: 32 } });
   assert.equal(retry.report.anatomyCandidates.length, 1);
   assert.deepEqual(retry.spec.crownShape, proposal.spec.crownShape);
   assert.ok(retry.history.every(entry => entry.anatomyCandidate === 0));

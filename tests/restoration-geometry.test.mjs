@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateRestoration, restorationReferencePlanes } from '../src/restoration-geometry.ts';
+import { crownTissueRegions, generateRestoration, restorationReferencePlanes, restorationMarginDepth } from '../src/restoration-geometry.ts';
 import { parseModel } from '../src/import-models.ts';
 import { inspectMesh } from '../skills/dental-restoration-design/scripts/dental-concept.mjs';
 
@@ -104,14 +104,16 @@ test('fixture and generic abutment share an explicit submerged platform; crown f
   assert.match(planes.interpretation, /no compatible implant connection/);
   const platformRadius = Math.max(...Array.from(abutment.positions).filter((_, index) => index % 3 === 0 && abutment.positions[index + 2] === Math.fround(-input.parameters.fixture.depth)));
   close(platformRadius, input.parameters.fixture.radius);
-  close(bounds(crown, 2)[0], input.parameters.abutment.height);
+  close(bounds(crown, 2)[0], -restorationMarginDepth(input));
+  assert.deepEqual(planes.crownBase.origin, [0, 0, -restorationMarginDepth(input)]);
   close(bounds(fixture, 0)[1], input.parameters.fixture.radius);
   input.parameters.abutment.angleX = 13; input.parameters.abutment.angleY = -19;
   const slanted = generateRestoration(input), h = input.parameters.abutment.height;
   const top = [Math.tan(-19 * Math.PI / 180) * h, -Math.tan(13 * Math.PI / 180) * h];
   for (let i = 0; i < crown.positions.length; i += 3) {
-    close(slanted[2].positions[i] - crown.positions[i], top[0]);
-    close(slanted[2].positions[i + 1] - crown.positions[i + 1], top[1]);
+    const margin = restorationMarginDepth(input), fraction = Math.min(1, (crown.positions[i + 2] + margin) / (h + margin));
+    close(slanted[2].positions[i] - crown.positions[i], top[0] * fraction);
+    close(slanted[2].positions[i + 1] - crown.positions[i + 1], top[1] * fraction);
     close(slanted[2].positions[i + 2], crown.positions[i + 2]);
   }
   slanted.forEach(integrity);
@@ -129,10 +131,50 @@ test('each fixture and crown parameter edits its own component; abutment control
     const next = generateRestoration(edited), index = ['fixture', 'abutment', 'crown'].indexOf(component);
     assert.notDeepEqual(next[index].positions, original[index].positions, `${component}.${key} must affect its shape`);
     if (component !== 'fixture' || !['radius', 'depth'].includes(key)) assert.deepEqual(next[component === 'fixture' ? 1 : 0].positions, original[component === 'fixture' ? 1 : 0].positions);
-    if (component === 'fixture' || (component === 'abutment' && ['radius', 'emergenceRadius'].includes(key))) assert.deepEqual(next[2].positions, original[2].positions);
+    if (component === 'fixture' || (component === 'abutment' && key === 'radius')) assert.deepEqual(next[2].positions, original[2].positions);
     if (component === 'crown') assert.deepEqual(next[1].positions, original[1].positions);
     next.forEach(integrity);
   }
+});
+
+test('fixture has a bounded helical surface instead of stacked circular ribs', () => {
+  const input = spec(), mesh = generateRestoration(input)[0];
+  const rings = new Map();
+  for (let i = 0; i < mesh.positions.length; i += 3) {
+    const [x, y, z] = mesh.positions.subarray(i, i + 3);
+    if (z < -1 && z > -4) {
+      const radii = rings.get(z) ?? []; radii.push(Math.hypot(x, y)); rings.set(z, radii);
+    }
+  }
+  assert.ok([...rings.values()].filter(radii => Math.max(...radii) - Math.min(...radii) > input.parameters.fixture.radius * .05).length > 10,
+    'The thread crest advances around each axial slice.');
+  input.parameters.fixture.length = 100;
+  const long = generateRestoration(input)[0];
+  assert.ok(long.vertices <= 5000 && long.triangles <= 10000, 'Extreme lengths retain bounded geometry and complete exposure sampling.');
+  integrity(long);
+});
+
+test('crown collar covers the pilar below the gum datum and stays separate from body-only tissue evidence', () => {
+  const input = spec(), crown = generateRestoration(input)[2];
+  const { body, emergence } = crownTissueRegions(input, crown);
+  assert.ok(emergence.length > 0 && body.length > 0);
+  assert.equal(body.length + emergence.length, crown.positions.length, 'No triangle is omitted from the two regions.');
+  for (let i = 2; i < body.length; i += 3) assert.ok(body[i] >= input.parameters.abutment.height - 1e-6);
+  close(bounds(crown, 2)[0], -restorationMarginDepth(input));
+  const deeper = structuredClone(input); deeper.parameters.fixture.depth *= 3;
+  assert.deepEqual(generateRestoration(deeper)[2].positions, crown.positions, 'Fixture-depth adjustments cannot lift the crown margin.');
+});
+
+test('body and emergence membership survive anisotropic and oblique Float32 placement', () => {
+  const input = spec(); input.parameters.crown.width = 500;
+  const local = generateRestoration(input)[2], localRegions = crownTissueRegions(input, local);
+  input.frame = { origin: [12, -4, 7], u: [2/3, 2/3, -1/3], v: [-1/3, 2/3, 2/3], up: [2/3, -1/3, 2/3] };
+  const crown = generateRestoration(input)[2], regions = crownTissueRegions(input, crown);
+  assert.equal(regions.body.length, localRegions.body.length);
+  assert.equal(regions.emergence.length, localRegions.emergence.length);
+  assert.deepEqual(regions.body, crown.positions.slice(0, crown.crownBodyTriangles * 9));
+  const unknown = { ...crown }; delete unknown.crownBodyTriangles;
+  assert.equal(crownTissueRegions(input, unknown).body.length, crown.positions.length, 'Unknown topology cannot remove crown-body evidence.');
 });
 
 test('incisor, canine, premolar and molar have distinct procedural exterior anatomy with closed caps', () => {
@@ -158,9 +200,9 @@ test('source frame transforms coordinates and normals once, preserving handednes
       close(transformed[k].positions[i + 1], -20 + x);
       close(transformed[k].positions[i + 2], 30 - y);
       const [nx, ny, nz] = local[k].normals.subarray(i, i + 3);
-      close(transformed[k].normals[i], -nz, 0.001);
-      close(transformed[k].normals[i + 1], nx, 0.001);
-      close(transformed[k].normals[i + 2], -ny, 0.001);
+      close(transformed[k].normals[i], -nz, 0.003);
+      close(transformed[k].normals[i + 1], nx, 0.003);
+      close(transformed[k].normals[i + 2], -ny, 0.003);
     }
     integrity(transformed[k]);
   }

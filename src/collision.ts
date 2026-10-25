@@ -5,23 +5,35 @@ export interface CollisionPart {
   positions: Float32Array | Float64Array;
   /** Caller has verified that this is a closed, watertight surface. */
   closed: boolean;
+  /** Caller-declared solid assembly. Internal pairs remain diagnostic, not heatmap targets. */
+  assemblyId?: string;
 }
 
 export interface PartAnalysis {
   id: string;
   distances: Float32Array;
+  /** All observed external contacts/crossings, including coplanar and edge contact. */
   intersecting: Uint8Array;
+  /** Subset with strict triangle-interior transverse crossing evidence. */
+  crossing: Uint8Array;
   penetratingVertices: number;
   nearbyVertices: number;
   intersectingTriangles: number;
+  crossingTriangles: number;
+  /** Contact-only faces; coplanar, edge, vertex and degenerate contacts included. */
+  contactTriangles: number;
   maxDepth: number;
 }
 
 export interface PairAnalysis {
   a: string;
   b: string;
-  /** Number of distinct flagged faces, summed across both parts. */
+  /** Number of distinct contacting/crossing faces, summed across both parts. */
   intersectingTriangles: number;
+  /** Subset with strict triangle-interior transverse crossing evidence. */
+  crossingTriangles: number;
+  /** Distinct contacting faces without transverse crossing evidence in this pair. */
+  contactTriangles: number;
   penetratingVertices: number;
   nearbyVertices: number;
   /** Unsigned vertex-sampled surface gap; crossings/contact force zero. */
@@ -31,7 +43,10 @@ export interface PairAnalysis {
 
 export interface CollisionReport {
   parts: PartAnalysis[];
+  /** External comparisons used for the aggregate distances and heatmap. */
   pairs: PairAnalysis[];
+  /** Same-assembly measurements retained separately; intent is not a fit/safety finding. */
+  assemblyPairs: PairAnalysis[];
   durationMs: number;
 }
 
@@ -117,7 +132,9 @@ function build(part: CollisionPart, checkBudget?: () => void): BVH {
   const extent = root.box.getSize(point).length();
   const magnitude = root.box.isEmpty() ? 0 : Math.max(
     ...root.box.min.toArray().map(Math.abs), ...root.box.max.toArray().map(Math.abs));
-  return { part, order, bounds, root, epsilon: extent * 1e-10 + magnitude * Number.EPSILON * 16 };
+  // Input coordinates define the geometry. Numeric tolerance must not become
+  // a near-surface threshold merely because another face is very large/far away.
+  return { part, order, bounds, root, epsilon: Math.max(extent, magnitude) * Number.EPSILON * 64 + Number.MIN_VALUE };
 }
 
 function boxDistanceSq(box: Box3, p: Vector3): number {
@@ -166,6 +183,9 @@ export interface NearestSurfaceQuery {
   nearestPoint(p: Vector3, target: Vector3, normal?: Vector3, maxDistance?: number): number;
   /** First forward triangle hit along a unit direction. Infinity means no observed surface. */
   rayDistance(p: Vector3, direction: Vector3, maxDistance?: number): number;
+  /** Broad-phase original face indices for a forward ray. Every potentially
+   * intersected leaf is retained; callers still test its actual triangles. */
+  rayTriangleCandidates(p: Vector3, direction: Vector3): Uint32Array;
 }
 
 /** Reuses the collision BVH without modifying positions or requiring a closed mesh. */
@@ -174,6 +194,18 @@ export function createNearestSurfaceQuery(
 ): NearestSurfaceQuery {
   const tree = build({ id: 'surface', positions, closed: false }, checkBudget);
   return {
+    rayTriangleCandidates(p, direction) {
+      const queryRay = new Ray(p, direction), candidates: number[] = [];
+      let visited = 0;
+      function visit(node: Node): void {
+        if ((++visited & 255) === 0) checkBudget?.();
+        if (!queryRay.intersectsBox(node.box)) return;
+        if (node.left && node.right) { visit(node.left); visit(node.right); }
+        else for (let i = node.start; i < node.end; i++) candidates.push(tree.order[i]);
+      }
+      visit(tree.root); checkBudget?.();
+      return Uint32Array.from(candidates);
+    },
     rayDistance(p, direction, maxDistance = Infinity) {
       const queryRay = new Ray(p, direction), face = new Triangle(), intersection = new Vector3();
       let best = maxDistance, found = false, visited = 0;
@@ -297,14 +329,15 @@ function segmentHitsTriangle(a: Vector3, b: Vector3, t: Triangle, epsilon: numbe
     segmentDistanceSq(a, b, t.b, t.c) <= e2 || segmentDistanceSq(a, b, t.c, t.a) <= e2;
 }
 
-function trianglesIntersect(a: Triangle, b: Triangle, epsilon: number): boolean {
+/** 0 separated, 1 contact/ambiguous, 2 observed transverse interior crossing. */
+function triangleRelationship(a: Triangle, b: Triangle, epsilon: number): 0 | 1 | 2 {
   a.getNormal(normalA);
   b.getNormal(normalB);
   if (normalA.lengthSq() === 0 || normalB.lengthSq() === 0) {
     const flat = normalA.lengthSq() === 0 ? a : b, target = flat === a ? b : a;
     return segmentHitsTriangle(flat.a, flat.b, target, epsilon) ||
       segmentHitsTriangle(flat.b, flat.c, target, epsilon) ||
-      segmentHitsTriangle(flat.c, flat.a, target, epsilon);
+      segmentHitsTriangle(flat.c, flat.a, target, epsilon) ? 1 : 0;
   }
   edgesA[0].subVectors(a.b, a.a); edgesA[1].subVectors(a.c, a.b); edgesA[2].subVectors(a.a, a.c);
   edgesB[0].subVectors(b.b, b.a); edgesB[1].subVectors(b.c, b.b); edgesB[2].subVectors(b.a, b.c);
@@ -319,18 +352,46 @@ function trianglesIntersect(a: Triangle, b: Triangle, epsilon: number): boolean 
     return Math.max(0, a1, a2) < Math.min(b0, b1, b2) - epsilon ||
       Math.max(b0, b1, b2) < Math.min(0, a1, a2) - epsilon;
   }
-  if (separated(normalA) || separated(normalB)) return false;
+  if (separated(normalA) || separated(normalB)) return 0;
   for (const ea of edgesA) for (const eb of edgesB) {
-    if (separated(axis.crossVectors(ea, eb))) return false;
+    if (separated(axis.crossVectors(ea, eb))) return 0;
   }
   // Coplanar triangles also need axes within their plane.
-  for (const e of edgesA) if (separated(axis.crossVectors(normalA, e))) return false;
-  for (const e of edgesB) if (separated(axis.crossVectors(normalB, e))) return false;
-  return true;
+  for (const e of edgesA) if (separated(axis.crossVectors(normalA, e))) return 0;
+  for (const e of edgesB) if (separated(axis.crossVectors(normalB, e))) return 0;
+
+  const signed = (p: Vector3, origin: Vector3, normal: Vector3) =>
+    (p.x - origin.x) * normal.x + (p.y - origin.y) * normal.y + (p.z - origin.z) * normal.z;
+  const aPoints = [a.a, a.b, a.c], bPoints = [b.a, b.b, b.c];
+  const aDistances = aPoints.map(p => signed(p, b.a, normalB));
+  const bDistances = bPoints.map(p => signed(p, a.a, normalA));
+  const straddles = (values: number[]) => Math.min(...values) < -epsilon && Math.max(...values) > epsilon;
+  if (!straddles(aDistances) || !straddles(bDistances)) return 1;
+
+  axis.crossVectors(normalA, normalB);
+  const length = axis.length();
+  if (!length) return 1;
+  axis.multiplyScalar(1 / length);
+  // Plane straddling alone can still meet at just one endpoint. Clip both
+  // faces to the common plane-intersection line and require positive length.
+  const section = (points: Vector3[], distances: number[]): [number, number] => {
+    const projections = points.map(p => signed(p, a.a, axis));
+    let min = Infinity, max = -Infinity;
+    const include = (value: number) => { min = Math.min(min, value); max = Math.max(max, value); };
+    for (let i = 0; i < 3; i++) {
+      const j = (i + 1) % 3, d = distances[i], next = distances[j];
+      if (d === 0) include(projections[i]);
+      if (d < 0 && next > 0 || d > 0 && next < 0) {
+        include(projections[i] + (projections[j] - projections[i]) * d / (d - next));
+      }
+    }
+    return [min, max];
+  };
+  const [aMin, aMax] = section(aPoints, aDistances), [bMin, bMax] = section(bPoints, bDistances);
+  return Math.min(aMax, bMax) - Math.max(aMin, bMin) > epsilon ? 2 : 1;
 }
 
-function intersections(a: BVH, b: BVH, flagsA: Uint8Array, flagsB: Uint8Array, epsilon: number): number {
-  let count = 0;
+function intersections(a: BVH, b: BVH, flagsA: Uint8Array, flagsB: Uint8Array, epsilon: number): void {
   function visit(na: Node, nb: Node): void {
     if (!boxesOverlap(na.box, nb.box, epsilon)) return;
     if (na.left && na.right && (!nb.left || na.end - na.start >= nb.end - nb.start)) {
@@ -343,28 +404,33 @@ function intersections(a: BVH, b: BVH, flagsA: Uint8Array, flagsB: Uint8Array, e
         readTriangle(a, ia, triangle);
         for (let j = nb.start; j < nb.end; j++) {
           const ib = b.order[j];
-          if (flagsA[ia] && flagsB[ib]) continue;
+          // Contact can later be upgraded to crossing against another face.
+          if (flagsA[ia] === 2 && flagsB[ib] === 2) continue;
           let overlap = true;
           for (let k = 0; k < 3; k++) {
             if (a.bounds[ia * 6 + k] > b.bounds[ib * 6 + k + 3] + epsilon ||
               b.bounds[ib * 6 + k] > a.bounds[ia * 6 + k + 3] + epsilon) { overlap = false; break; }
           }
-          if (overlap && trianglesIntersect(triangle, readTriangle(b, ib, otherTriangle), epsilon)) {
-            count += (flagsA[ia] ? 0 : 1) + (flagsB[ib] ? 0 : 1);
-            flagsA[ia] = flagsB[ib] = 1;
+          if (overlap) {
+            const relationship = triangleRelationship(triangle, readTriangle(b, ib, otherTriangle), epsilon);
+            flagsA[ia] = Math.max(flagsA[ia], relationship);
+            flagsB[ib] = Math.max(flagsB[ib], relationship);
           }
         }
       }
     }
   }
   visit(a.root, b.root);
-  return count;
 }
 
 /**
- * Distances use the minimum signed distance to all other parts: any containing
+ * Distances use the minimum signed distance to external parts: any containing
  * target takes precedence, with the deepest target winning. Counts are corners
  * (nonindexed duplicates included). Nearby means outside/on-surface and <= tolerance.
+ * Same-assembly pairs are retained separately, without coloring intended solid
+ * envelope overlaps as external collisions. Open/degenerate/coplanar contacts
+ * do not prove penetration. A crossing exactly along triangulation seams may
+ * only have contact evidence; contact is retained even with no nearby corners.
  */
 export function analyzeCollisions(parts: CollisionPart[], tolerance: number): CollisionReport {
   const started = performance.now();
@@ -373,15 +439,16 @@ export function analyzeCollisions(parts: CollisionPart[], tolerance: number): Co
   const trees = parts.map(part => build(part));
   const results: PartAnalysis[] = parts.map(p => ({
     id: p.id, distances: new Float32Array(p.positions.length / 3).fill(Infinity),
-    intersecting: new Uint8Array(p.positions.length / 9),
-    penetratingVertices: 0, nearbyVertices: 0, intersectingTriangles: 0, maxDepth: 0,
+    intersecting: new Uint8Array(p.positions.length / 9), crossing: new Uint8Array(p.positions.length / 9),
+    penetratingVertices: 0, nearbyVertices: 0, intersectingTriangles: 0, crossingTriangles: 0, contactTriangles: 0, maxDepth: 0,
   }));
-  const pairs: PairAnalysis[] = [];
+  const pairs: PairAnalysis[] = [], assemblyPairs: PairAnalysis[] = [];
   for (let a = 0; a < trees.length; a++) for (let b = a + 1; b < trees.length; b++) {
     if (!trees[a].order.length || !trees[b].order.length) continue;
     const epsilon = Math.max(trees[a].epsilon, trees[b].epsilon);
+    const internal = !!parts[a].assemblyId && parts[a].assemblyId === parts[b].assemblyId;
     const pair: PairAnalysis = {
-      a: parts[a].id, b: parts[b].id, intersectingTriangles: 0,
+      a: parts[a].id, b: parts[b].id, intersectingTriangles: 0, crossingTriangles: 0, contactTriangles: 0,
       penetratingVertices: 0, nearbyVertices: 0, minDistance: Infinity, maxDepth: 0,
     };
     function sample(source: number, target: number): void {
@@ -399,7 +466,7 @@ export function analyzeCollisions(parts: CollisionPart[], tolerance: number): Co
           else if (inside(trees[target], point)) distance = -distance;
           samples.set(key, distance);
         }
-        result.distances[i / 3] = Math.min(result.distances[i / 3], distance);
+        if (!internal) result.distances[i / 3] = Math.min(result.distances[i / 3], distance);
         pair.minDistance = Math.min(pair.minDistance, Math.abs(distance));
         if (distance < 0) { pair.penetratingVertices++; pair.maxDepth = Math.max(pair.maxDepth, -distance); }
         else if (distance <= tolerance) pair.nearbyVertices++;
@@ -407,18 +474,33 @@ export function analyzeCollisions(parts: CollisionPart[], tolerance: number): Co
     }
     sample(a, b); sample(b, a);
     const flagsA = new Uint8Array(trees[a].order.length), flagsB = new Uint8Array(trees[b].order.length);
-    pair.intersectingTriangles = intersections(trees[a], trees[b], flagsA, flagsB, epsilon);
+    intersections(trees[a], trees[b], flagsA, flagsB, epsilon);
+    for (const [index, flags] of [[a, flagsA], [b, flagsB]] as const) {
+      for (let i = 0; i < flags.length; i++) {
+        if (flags[i]) pair.intersectingTriangles++;
+        if (flags[i] === 2) pair.crossingTriangles++;
+        else if (flags[i] === 1) pair.contactTriangles++;
+        if (!internal) {
+          if (flags[i]) results[index].intersecting[i] = 1;
+          if (flags[i] === 2) results[index].crossing[i] = 1;
+        }
+      }
+    }
     if (pair.intersectingTriangles) pair.minDistance = 0;
-    for (let i = 0; i < flagsA.length; i++) results[a].intersecting[i] |= flagsA[i];
-    for (let i = 0; i < flagsB.length; i++) results[b].intersecting[i] |= flagsB[i];
-    if (pair.intersectingTriangles || pair.penetratingVertices || pair.nearbyVertices) pairs.push(pair);
+    if (pair.intersectingTriangles || pair.penetratingVertices || pair.nearbyVertices) {
+      (internal ? assemblyPairs : pairs).push(pair);
+    }
   }
   for (const result of results) {
     for (const distance of result.distances) {
       if (distance < 0) { result.penetratingVertices++; result.maxDepth = Math.max(result.maxDepth, -distance); }
       else if (distance <= tolerance) result.nearbyVertices++;
     }
-    for (const flag of result.intersecting) result.intersectingTriangles += flag;
+    for (let i = 0; i < result.intersecting.length; i++) {
+      result.intersectingTriangles += result.intersecting[i];
+      result.crossingTriangles += result.crossing[i];
+      if (result.intersecting[i] && !result.crossing[i]) result.contactTriangles++;
+    }
   }
-  return { parts: results, pairs, durationMs: performance.now() - started };
+  return { parts: results, pairs, assemblyPairs, durationMs: performance.now() - started };
 }

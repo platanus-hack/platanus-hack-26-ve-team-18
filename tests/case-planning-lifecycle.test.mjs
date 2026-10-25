@@ -96,7 +96,7 @@ function preparedResponse(payload) {
     identities: payload.sources.map(source => ({ partId: source.id, candidateId: 1, fdi: payload.patientRight?.[source.id] ? source.arch === 'upper' ? 11 : 41 : null, confidence: payload.patientRight?.[source.id] ? .9 : 0, alternatives: [], needsReview: !payload.patientRight?.[source.id], reason: 'Synthetic geometry.', source: 'geometry' })),
   };
 }
-function setup(t) {
+function setup(t, { configured = true } = {}) {
   const saved = Object.fromEntries(['Worker', 'fetch', '__casePlanningLifecycleHooks', '__casePlanningLifecycleViews']
     .map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const workers = [], requests = [];
@@ -120,7 +120,7 @@ function setup(t) {
     reply(patch = {}) { return this.onmessage({ data: { ...preparedResponse(this.payload), ...patch } }); }
   };
   globalThis.fetch = (path, options) => {
-    if (path === '/api/planning/status') return Promise.resolve({ ok: true, json: async () => ({ configured: true, model: 'claude-sonnet-5-5' }) });
+    if (path === '/api/planning/status') return Promise.resolve({ ok: true, json: async () => ({ configured, model: 'claude-sonnet-5-5' }) });
     assert.equal(path, '/api/planning/analyze');
     // Resolve headers first, but hold JSON completion until after invalidation.
     // This tests the hook's stale-result guard independently of transport abort.
@@ -171,6 +171,67 @@ test('a deliberate external assessment can inspect a partial case without patien
   assert.ok(await operation);
 });
 
+for (const nextAction of ['local workflow', 'session restore']) {
+  test(`${nextAction} clears live activity from the previous AI assessment`, async t => {
+    const { host, prepare } = setup(t);
+    const view = await prepare();
+    globalThis.fetch = async (_path, options) => {
+      const payload = JSON.parse(options.body);
+      const events = [
+        { type: 'started', revision: payload.revision, model: 'claude-sonnet-5-5' },
+        { type: 'tool', activity: { id: 'old-tool', name: 'inspectToothRegion', phase: 'complete', output: { status: 'available' } } },
+        { type: 'result', result: assessment({ payload }) },
+      ];
+      return new Response(events.map(event => JSON.stringify(event) + '\n').join(''), { headers: { 'content-type': 'application/x-ndjson' } });
+    };
+    assert.ok(await view.analyze());
+    const assessed = host.render();
+    assert.equal(assessed.activity.length, 1);
+    if (nextAction === 'local workflow') assessed.analyzeLocal();
+    else assessed.restore({ evidence: assessed.evidence, prepared: assessed.prepared, result: assessed.result, patientRight: null });
+    assert.deepEqual(host.render().activity, [], 'an earlier live trace must not overwrite the new or reopened workflow journal');
+  });
+}
+
+test('an unavailable AI provider leaves generation unresolved until the explicit local workflow is selected', async t => {
+  const { host, prepare, requests } = setup(t, { configured: false });
+  const view = await prepare();
+  assert.equal(await view.analyze(), null);
+  assert.equal(host.render().result, null);
+  assert.match(host.render().error, /Start local workflow/);
+  assert.equal(requests.length, 0);
+  const local = host.render().analyzeLocal();
+  assert.equal(local.model, 'local-geometry');
+  assert.equal(host.render().result.model, 'local-geometry');
+  assert.equal(host.render().error, '');
+});
+
+test('planning includes both oblique sides of both arches within the eight-view budget', async t => {
+  const { host, context, workers } = setup(t);
+  const parts = [part('upper'), { ...part('lower'), role: 'lower' }];
+  globalThis.__casePlanningLifecycleViews.tooth = source => ['Occlusal overview', 'Oblique +u', 'Oblique -u', 'Oblique +v'].map(label => ({ label: `${source.id} ${label}`, mediaType: 'image/jpeg', base64: 'AA==' }));
+  host.render({ parts, context: { ...context, parts } }); await settled();
+  t.mock.timers.tick(450); host.render(); await workers.at(-1).reply();
+  const { views } = host.render().evidence;
+  assert.equal(views.length, 8);
+  for (const sourceId of ['scan-1', 'scan-2']) {
+    assert.equal(views.filter(view => view.sourceId === sourceId).length, 3);
+    assert.ok(views.some(view => view.sourceId === sourceId && view.label.endsWith('Oblique +u')));
+    assert.ok(views.some(view => view.sourceId === sourceId && view.label.endsWith('Oblique -u')));
+  }
+});
+
+test('multipart upper sources cannot consume every overview slot before the lower arch', async t => {
+  const { host, context, workers } = setup(t);
+  const parts = [...Array.from({ length: 6 }, (_, i) => part(`upper-${i}`)), { ...part('lower'), role: 'lower' }];
+  host.render({ parts, context: { ...context, parts } }); await settled();
+  t.mock.timers.tick(450); host.render(); await workers.at(-1).reply();
+  const { views } = host.render().evidence;
+  assert.equal(views.length, 8);
+  assert.equal(views[1].sourceId, 'scan-7');
+  assert.equal(views[1].context, 'arch');
+});
+
 test('one explicit patient-right confirmation re-prepares identities before an external assessment', async t => {
   const { host, prepare, confirm, workers, requests } = setup(t);
   const initial = await prepare();
@@ -184,6 +245,39 @@ test('one explicit patient-right confirmation re-prepares identities before an e
   const operation = view.analyze(); await settled(); assert.equal(requests.length, 1);
   requests[0].complete(assessment(requests[0])); assert.ok(await operation);
 });
+
+for (const lowerFirst of [false, true]) for (const side of ['image-right', 'image-left']) {
+  test(`overview laterality agrees locally and in AI evidence: lower first ${lowerFirst}, ${side}`, async t => {
+    const { host, context, workers, requests } = setup(t);
+    const upper = part('upper'), lower = { ...part('lower'), role: 'lower' };
+    const parts = lowerFirst ? [lower, upper] : [upper, lower];
+    const reply = () => {
+      const response = preparedResponse(workers.at(-1).payload);
+      response.scans.find(source => source.partId === 'lower').scan.frame = {
+        origin: [0, 0, 0], u: [-1, 0, 0], v: [0, 1, 0], up: [0, 0, -1],
+      };
+      return workers.at(-1).reply(response);
+    };
+    host.render({ parts, context: { ...context, parts } }); await settled();
+    t.mock.timers.tick(450); host.render(); await reply();
+    let view = host.render();
+    assert.equal(view.evidence.views[0].sourceId, lowerFirst ? 'scan-2' : 'scan-1');
+    // Saved cases must retain the reference of the overview that was confirmed.
+    view.restore({ evidence: view.evidence, prepared: view.prepared, result: null, patientRight: null });
+    view = host.render();
+    view.setPatientRight(side); host.render(); t.mock.timers.tick(450); host.render();
+    const localSides = workers.at(-1).payload.patientRight;
+    assert.deepEqual(localSides, { upper: side, lower: side === 'image-right' ? 'image-left' : 'image-right' });
+    await reply(); view = host.render();
+    const operation = view.analyze(); await settled();
+    assert.equal(requests.length, 1);
+    for (const source of requests[0].payload.sources) {
+      const id = parts[Number(source.id.slice(5)) - 1].id;
+      assert.equal(source.patientRight, localSides[id]);
+    }
+    requests[0].complete(assessment(requests[0])); assert.ok(await operation);
+  });
+}
 
 test('replacing geometry under the same identifier clears confirmation of the previous overview', async t => {
   const { host, prepare, confirm, parts, context, workers } = setup(t);
@@ -271,7 +365,7 @@ for (const field of ['report', 'tolerance', 'analysisState', 'fitSummary', 'fitR
     host.render({ context: { ...context, [field]: changed } }); requests[0].complete(assessment(requests[0])); await operation; view = host.render();
     assert.notEqual(view.result?.model, 'claude-sonnet-5-5'); assert.match(view.error, /Case evidence changed during assessment/);
     assert.equal(view.evidence, evidence); assert.equal(view.busy, false);
-    assert.equal(view.result.model, 'local-geometry', 'a failed remote assessment may retain independent local geometry');
+    assert.equal(view.result, null, 'a failed AI assessment must not silently switch generation to local defaults');
   });
 }
 

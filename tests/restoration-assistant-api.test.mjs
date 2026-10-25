@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { MockLanguageModelV4 } from 'ai/test';
-import { simulateReadableStream } from 'ai';
+import { APICallError, RetryError, StreamProviderError, ToolChoiceViolationError, simulateReadableStream } from 'ai';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAssistantMiddleware } from '../server/assistant.ts';
 import { buildAssistantSnapshot } from '../src/assistant-context.ts';
 import { DEFAULT_ASSISTANT_MODEL } from '../src/anthropic-models.ts';
 import { readAssistantEvents } from '../src/assistant-protocol.ts';
 import { restorationAssistantSnapshotSchema } from '../src/restoration-assistant.ts';
+import { compareRestorationFeedback } from '../src/restoration-feedback.ts';
 import { emptyToothCase } from '../src/tooth-session.ts';
 import { evidence, sliceCapture, spec } from './tomography-fixtures.mjs';
 
@@ -91,10 +93,10 @@ test('restoration tools are absent without the field, read-only without opt-in, 
     assert.equal(names.includes('requestRestorationEdit'), mode === 'editing');
     const instructions = system(model.doStreamCalls[0]);
     if (mode === 'editing') {
-      assert.match(instructions, /at most 3 requested edits per user question/);
+      assert.match(instructions, /at most 8 requested edits per user question/);
       assert.match(instructions, /including requests that fail in the host/);
       assert.match(instructions, /file units, not clinical sizing, millimeter dimensions or a subcrestal placement rule/);
-      assert.match(instructions, /Host edit budget: 0\/3/);
+      assert.match(instructions, /Host edit budget: 0\/8/);
     } else assert.match(instructions, /No tools can alter a case.*generate geometry/);
   }
 });
@@ -115,6 +117,193 @@ test('only the successful locally executed result emits one edit handoff and sto
   assert.ok(outputIndex < result.events.indexOf(handoff));
   assert.deepEqual(result.events[outputIndex].output, { status: 'requested', request: action(), applied: false });
   assert.equal(result.events.some(event => event.type === 'error' || event.type === 'done'), false);
+});
+
+test('measurement follow-up accepts scan inventory before restoration measurements for every offered model', async t => {
+  for (const modelId of ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']) {
+    const model = scripted([call('getModelInventory'), finish()], read(), answer());
+    const payload = body(); payload.model = modelId; payload.restoration.mode = 'measurement-follow-up';
+    const result = await post(await serve(t, model), payload);
+    assert.equal(result.events.at(-1).type, 'done', modelId);
+    assert.equal(result.events.some(event => event.type === 'error'), false, modelId);
+    assert.deepEqual(result.events.filter(event => event.name === 'getModelInventory').map(event => event.state), ['running', 'complete']);
+    assert.equal(model.doStreamCalls[0].toolChoice.type, 'auto');
+  }
+});
+
+test('measurement review uses supported native Anthropic settings and executes scan inventory instead of rejecting it', async t => {
+  for (const modelId of ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']) {
+    const requests = [];
+    const provider = createAnthropic({ apiKey: 'PRIVATE_TEST_KEY', fetch: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      assert.ok(requests.length <= 3);
+      const name = requests.length === 1 ? 'getModelInventory' : requests.length === 2 ? 'getRestorationDesign' : null;
+      const records = [
+        { type: 'message_start', message: { id: `message-${requests.length}`, role: 'assistant', model: modelId, usage: { input_tokens: 10 } } },
+        ...(name ? [
+          { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: `read-${requests.length}`, name, input: {} } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{}' } },
+        ] : [
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Current measured component evidence remains provisional.' } },
+        ]),
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: name ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: 5 } },
+        { type: 'message_stop' },
+      ];
+      return new Response(records.map(record => `event: ${record.type}\ndata: ${JSON.stringify(record)}\n\n`).join(''),
+        { headers: { 'Content-Type': 'text/event-stream' } });
+    } });
+    const payload = body(); payload.model = modelId; payload.restoration.mode = 'measurement-follow-up';
+    const result = await post(await serve(t, provider(modelId)), payload);
+    assert.equal(result.events.at(-1).type, 'done', modelId);
+    assert.deepEqual(result.events.filter(event => event.name === 'getModelInventory').map(event => event.state), ['running', 'complete']);
+    assert.equal(requests.length, 3);
+    assert.equal(requests[0].tool_choice.type, 'auto');
+    assert.equal(requests[0].max_tokens, 2500);
+    if (modelId.includes('haiku')) assert.equal(requests[0].thinking.type, 'disabled');
+    if (modelId.includes('sonnet')) assert.equal(requests[0].thinking.type, 'between_tools');
+    if (modelId.includes('opus')) assert.equal(requests[0].output_config.effort, 'low');
+    assert.doesNotMatch(JSON.stringify(result.events), /PRIVATE_TEST_KEY/);
+  }
+});
+
+test('measurement follow-up supplies current measurements before the model can answer or choose a wrong alias', async t => {
+  const payload = body(); payload.restoration.mode = 'measurement-follow-up';
+  const model = scripted([call('getRestorationDesign', { assemblyId: 'restoration-64' }), finish()], answer());
+  const result = await post(await serve(t, model), payload);
+  const seed = result.events.find(event => event.name === 'getRestorationDesign' && event.state === 'complete');
+  assert.deepEqual(seed.output.assemblies, payload.restoration.snapshot.assemblies);
+  const supplied = model.doStreamCalls[0].prompt.filter(message => message.role === 'tool').flatMap(message => message.content)
+    .find(part => part.toolName === 'getRestorationDesign');
+  assert.deepEqual(supplied.output.value.assemblies, payload.restoration.snapshot.assemblies);
+  const unavailable = result.events.find(event => event.name === 'getRestorationDesign' && event.output?.status === 'unavailable');
+  assert.deepEqual(unavailable.output.availableAssemblyIds, ['restoration-1', 'restoration-2']);
+  assert.match(unavailable.output.reason, /alias/);
+  assert.equal(result.events.at(-1).type, 'done');
+  assert.deepEqual(handoffs(result), []);
+});
+
+test('measurement follow-up rejects an empty inventory without spending a provider request', async t => {
+  const payload = body(); payload.restoration.mode = 'measurement-follow-up'; payload.restoration.snapshot = inventory(0);
+  const model = scripted();
+  const result = await post(await serve(t, model), payload);
+  assert.equal(result.events.at(-1).code, 'no-restorations');
+  assert.equal(model.doStreamCalls.length, 0); assert.deepEqual(handoffs(result), []);
+});
+
+test('an edit continuation receives newly measured context before inspecting scans or requesting a revision', async t => {
+  const model = scripted(read(), edit(), [call('getModelInventory'), finish()], answer());
+  const url = await serve(t, model), payload = body(); payload.restoration.mode = 'measurement-follow-up';
+  const [handoff] = handoffs(await post(url, payload));
+  const next = appliedContinuation(payload, handoff);
+  const result = await post(url, next);
+  assert.equal(result.events.at(-1).type, 'done');
+  assert.deepEqual(result.events.filter(event => event.name === 'getModelInventory').map(event => event.state), ['running', 'complete']);
+  const supplied = model.doStreamCalls[2].prompt.filter(message => message.role === 'tool').flatMap(message => message.content)
+    .find(part => part.toolName === 'getRestorationDesign');
+  assert.deepEqual(supplied.output.value.assemblies, next.restoration.snapshot.assemblies);
+  assert.deepEqual(handoffs(result), []);
+});
+
+test('ordinary edit continuation supplies actual component profile and support rows before an answer', async t => {
+  const payload = body(), assembly = payload.restoration.snapshot.assemblies[0];
+  assembly.componentDesign = 'nested-support/v1';
+  assembly.quality.feedbackRows = [{ id: 'component-support.pilar-enclosure', label: 'Pilar support vertices outside crown', component: 'abutment',
+    actual: 0, lower: null, upper: 0, target: 0, exclusiveUpper: false, error: 0, units: 'count', status: 'pass', source: 'quality',
+    controls: ['abutment.radius', 'abutment.height', 'crown.width', 'crown.depth', 'crown.height'], feedback: 'Within the emitted support envelope check only.' }];
+  const model = scripted(read(), edit(), answer()), url = await serve(t, model);
+  const [handoff] = handoffs(await post(url, payload));
+  const next = appliedContinuation(payload, handoff), result = await post(url, next);
+  assert.equal(result.events.at(-1).type, 'done');
+  const seed = model.doStreamCalls[2].prompt.filter(message => message.role === 'tool').flatMap(message => message.content)
+    .find(part => part.toolName === 'getRestorationDesign');
+  assert.deepEqual(seed.output.value.assemblies, next.restoration.snapshot.assemblies);
+  assert.equal(seed.output.value.assemblies[0].componentDesign, 'nested-support/v1');
+  assert.equal(seed.output.value.assemblies[0].quality.feedbackRows[0].actual, 0);
+  assert.match(system(model.doStreamCalls[2]), /internal clearance is sampled envelope evidence, never actual wall thickness/);
+  assert.match(system(model.doStreamCalls[2]), /no edit tool can change componentDesign/);
+  assert.equal(model.doStreamCalls.length, 3);
+});
+
+test('measured rejection feeds a revised candidate and identical geometry cannot evade it by changing its reason', async t => {
+  const payload = body(), duplicate = action(); duplicate.edit.reason = 'A different explanation for exactly the same geometry.';
+  const revised = action(); revised.edit.parameters.crown.height = 7;
+  revised.edit.parameters.abutment = { radius: .8, emergenceRadius: 1.4 };
+  revised.edit.reason = 'Reduce the measured unsupported pilar envelope and remeasure every preserved contact target.';
+  const later = action(); later.expectedRevision = revision(11);
+  const model = scripted(read(), edit(), edit(duplicate), edit(revised), edit(later), read(), edit());
+  const url = await serve(t, model), [first] = handoffs(await post(url, payload));
+  const rejected = errorContinuation(payload, first), outcome = rejected.restoration.continuation.result;
+  outcome.code = 'rejected'; outcome.message = 'Measured support guardrail rejected this candidate.';
+  const rows = [{ id: 'component-support.pilar-enclosure', label: 'Pilar support vertices outside crown', component: 'abutment',
+    actual: 12, lower: null, upper: 0, target: 0, exclusiveUpper: false, error: 12, units: 'count', status: 'fail', source: 'quality',
+    controls: ['abutment.radius', 'abutment.height', 'crown.width', 'crown.depth', 'crown.height'], feedback: 'Twelve emitted support vertices remain outside the crown envelope.' }];
+  outcome.rejectedCandidate = { rows, changes: compareRestorationFeedback(outcome.before.quality.feedbackRows, rows),
+    failureFeedback: ['The candidate lost pilar enclosure; preserve all external target contact bands while correcting support.'] };
+  const result = await post(url, rejected), [second] = handoffs(result);
+  assert.equal(result.status, 200, JSON.stringify(result));
+  assert.ok(second, JSON.stringify(result));
+  assert.deepEqual(second.request, revised); assert.equal(second.editsUsed, 2);
+  const refusal = result.events.find(event => event.name === 'requestRestorationEdit' && event.state === 'complete' && event.output.status === 'error');
+  assert.equal(refusal.output.code, 'invalid'); assert.match(refusal.output.message, /already measured and rejected at this revision/);
+  const prompt = system(model.doStreamCalls[2]);
+  assert.ok(prompt.includes(JSON.stringify(outcome.rejectedCandidate)));
+  assert.match(prompt, /Previously measured rejected edits/);
+  const seed = model.doStreamCalls[2].prompt.filter(message => message.role === 'tool').flatMap(message => message.content)
+    .find(part => part.toolName === 'getRestorationDesign');
+  assert.deepEqual(seed.output.value.assemblies, payload.restoration.snapshot.assemblies, 'rejected geometry never replaces current inventory');
+
+  const applied = appliedContinuation(rejected, second), changed = await post(url, applied);
+  assert.deepEqual(handoffs(changed)[0].request, later, 'a genuinely changed current revision permits a new measured trial');
+  assert.doesNotMatch(system(model.doStreamCalls[4]), /Previously measured rejected edits/);
+
+  // A new user question on the same server is independent of the old session.
+  const fresh = await post(url, payload);
+  assert.deepEqual(handoffs(fresh)[0].request, action());
+  assert.equal(handoffs(fresh)[0].editsUsed, 1);
+  assert.doesNotMatch(system(model.doStreamCalls[5]), /Previously measured rejected edits/);
+});
+
+test('local tool-choice failures and actual provider status codes have distinct safe diagnostics', async t => {
+  const apiError = status => new APICallError({ message: 'PRIVATE_UPSTREAM', url: 'https://private.invalid',
+    requestBodyValues: { secret: 'PRIVATE_KEY', case: 'PRIVATE_PATIENT' }, statusCode: status, responseBody: 'PRIVATE_PAYLOAD' });
+  const choice = reason => new ToolChoiceViolationError({ toolChoice: { type: 'tool', toolName: 'getRestorationDesign' },
+    finishReason: reason, provider: 'anthropic.messages', modelId: DEFAULT_ASSISTANT_MODEL, content: [{ type: 'text', text: 'PRIVATE_PATIENT' }] });
+  const cases = [[choice('tool-calls'), 'tool-choice'], [choice('length'), 'output-limit'],
+    ...[[401, 'authentication'], [403, 'model-access'], [404, 'model-unavailable'], [400, 'provider-request'], [413, 'provider-request'],
+      [408, 'timeout'], [429, 'rate-limit'], [500, 'provider-unavailable']].map(([status, code]) => [apiError(status), code]),
+    [new StreamProviderError({ message: 'PRIVATE_STREAM', statusCode: 429, data: { payload: 'PRIVATE_PATIENT' } }), 'rate-limit'],
+    [new RetryError({ message: 'PRIVATE_RETRY', reason: 'maxRetriesExceeded', errors: [apiError(429)] }), 'rate-limit']];
+  for (const [error, code] of cases) {
+    const model = scripted([{ type: 'error', error }, finish('error')]);
+    const result = await post(await serve(t, model), body());
+    assert.equal(result.events.find(event => event.type === 'error').code, code);
+    assert.equal(result.events.some(event => event.type === 'done'), false);
+    assert.deepEqual(handoffs(result), []);
+    assert.doesNotMatch(JSON.stringify(result.events), /PRIVATE|private\.invalid/);
+    if (code === 'tool-choice') assert.doesNotMatch(JSON.stringify(result.events), /API key|quota/);
+  }
+});
+
+test('measurement follow-up permits four host attempts and removes editing from the fifth final review', async t => {
+  const model = scripted(...Array.from({ length: 4 }, () => [read(), edit()]).flat(), read(), answer());
+  const url = await serve(t, model);
+  let payload = body(); payload.restoration.mode = 'measurement-follow-up';
+  for (let count = 1; count <= 4; count++) {
+    const result = await post(url, payload);
+    const [handoff] = handoffs(result);
+    assert.equal(handoff.editsUsed, count);
+    const inventory = result.events.find(event => event.name === 'getRestorationDesign' && event.state === 'complete').output;
+    assert.equal(inventory.editsRemaining, 5 - count);
+    assert.match(system(model.doStreamCalls[(count - 1) * 2]), /at most 4 requested edits/);
+    payload = errorContinuation(payload, handoff);
+  }
+  const result = await post(url, payload);
+  assert.equal(result.events.at(-1).type, 'done'); assert.deepEqual(handoffs(result), []);
+  assert.equal(result.events.find(event => event.name === 'getRestorationDesign' && event.state === 'complete').output.editsRemaining, 0);
+  assert.equal(model.doStreamCalls[8].tools.some(tool => tool.name === 'requestRestorationEdit'), false);
+  assert.match(system(model.doStreamCalls[8]), /Host edit budget: 4\/4/);
 });
 
 test('explicit opt-in is required and client-supplied edit budgets are rejected before model selection', async t => {
@@ -176,9 +365,9 @@ test('applied continuation validates fresh before/after evidence, preserves orig
   assert.equal(result.events.at(-1).type, 'done');
   const readOutput = result.events.find(event => event.name === 'getRestorationDesign' && event.state === 'complete').output;
   assert.deepEqual(readOutput.assemblies, resumed.restoration.snapshot.assemblies);
-  assert.equal(readOutput.editsRemaining, 2);
+  assert.equal(readOutput.editsRemaining, 7);
   const prompt = system(model.doStreamCalls[2]);
-  assert.match(prompt, /Host edit budget: 1\/3/);
+  assert.match(prompt, /Host edit budget: 1\/8/);
   assert.match(prompt, /Validated host edit result/);
   assert.ok(prompt.includes(JSON.stringify(resumed.restoration.continuation.result)));
   assert.deepEqual(model.doStreamCalls[2].prompt.filter(item => item.role === 'user').map(item => item.content[0].text), original.messages.map(item => item.content));
@@ -189,6 +378,7 @@ test('applied continuation validates fresh before/after evidence, preserves orig
 
 test('pending edit binds permissions, model, messages, exact action, before, after and other assemblies', async t => {
   const variants = {
+    'changed workflow mode': next => { next.restoration.mode = 'measurement-follow-up'; },
     'changed model': next => { next.model = 'claude-opus-5-5'; },
     'changed message': next => { next.messages[0].content = 'A different question'; },
     'revoked opt-in': next => { next.restoration.allowEdits = false; },
@@ -229,7 +419,7 @@ test('host error requires an unchanged snapshot and exact request and before evi
     assert.equal(model.doStreamCalls.length, variant === 'valid' ? 4 : 2, variant);
     if (variant === 'valid') {
       assert.equal(result.events.at(-1).type, 'done');
-      assert.match(system(model.doStreamCalls[2]), /Host edit budget: 1\/3/);
+      assert.match(system(model.doStreamCalls[2]), /Host edit budget: 1\/8/);
       assert.match(system(model.doStreamCalls[2]), /"status":"error"/);
     }
   }
@@ -258,36 +448,41 @@ test('editing view continuations require their one-use token, exact round, rende
   }
 });
 
-test('three requested edits stay capped across view continuations, including host errors; view rounds remain independent', async t => {
+test('eight requested edits stay capped across view continuations, including host errors; view rounds remain independent', async t => {
   const original = { ...body(), tomography: evidence() };
-  const afterFirst = { ...design(), editRevision: revision(11), parameters: { ...design().parameters, crown: { ...design().parameters.crown, height: 9 } } };
-  const afterThird = { ...afterFirst, editRevision: revision(21), parameters: { ...afterFirst.parameters, crown: { ...afterFirst.parameters.crown, height: 10 } } };
-  const model = scripted(read(), edit(), view(), read(), edit(action(afterFirst)), view(), read(), edit(action(afterFirst)), view(), read(), edit(action(afterThird)));
-  const url = await serve(t, model); let payload = original; const tokens = new Set();
-  for (let index = 1; index <= 3; index++) {
+  const steps = []; let current = design();
+  for (let index = 1; index <= 8; index++) {
+    steps.push(read(), edit(action(current)));
+    if (index !== 2) current = { ...current, editRevision: revision(Number.parseInt(current.editRevision.slice(9), 16) + 10),
+      parameters: { ...current.parameters, crown: { ...current.parameters.crown, height: current.parameters.crown.height + 1 } } };
+    if (index <= 3) steps.push(read(), view()); // Every edit result first requires a fresh design read.
+  }
+  steps.push(read(), answer());
+  const model = scripted(...steps), url = await serve(t, model); let payload = original; const tokens = new Set();
+  for (let index = 1; index <= 8; index++) {
     const result = await post(url, payload); const [editHandoff] = handoffs(result);
     assert.equal(editHandoff.type, 'edit-request'); assert.equal(editHandoff.editsUsed, index);
     assert.equal(tokens.has(editHandoff.continuationToken), false); tokens.add(editHandoff.continuationToken);
     payload = index === 2 ? errorContinuation(payload, editHandoff) : appliedContinuation(payload, editHandoff);
-    // The client recaptures the initial images after an edit instead of retaining
-    // screenshots with old geometry; that must not reset either server budget.
+    // Recapturing initial images does not reset either server budget.
     payload.tomography = evidence();
-    const [viewHandoff] = handoffs(await post(url, payload));
-    assert.equal(viewHandoff.type, 'view-request'); assert.equal(viewHandoff.editsUsed, index); assert.equal(viewHandoff.round, index);
-    assert.equal(tokens.has(viewHandoff.continuationToken), false); tokens.add(viewHandoff.continuationToken);
-    payload = viewContinuation(payload, viewHandoff);
-    assert.equal(payload.continuation.viewId, 'view-3');
+    if (index <= 3) {
+      const [viewHandoff] = handoffs(await post(url, payload));
+      assert.equal(viewHandoff.type, 'view-request'); assert.equal(viewHandoff.editsUsed, index); assert.equal(viewHandoff.round, index);
+      assert.equal(tokens.has(viewHandoff.continuationToken), false); tokens.add(viewHandoff.continuationToken);
+      payload = viewContinuation(payload, viewHandoff);
+      assert.equal(payload.continuation.viewId, 'view-3');
+    }
   }
   const completed = await post(url, payload);
   assert.deepEqual(handoffs(completed), []);
-  const lastCalls = model.doStreamCalls.slice(-2);
-  for (const item of lastCalls) {
+  for (const item of model.doStreamCalls.slice(-2)) {
     assert.equal(item.tools.some(tool => tool.name === 'requestRestorationEdit'), false);
     assert.equal(item.tools.some(tool => tool.name === 'requestTomographyView'), false);
-    assert.match(system(item), /Host edit budget: 3\/3.*View budget: 3\/3/);
+    assert.match(system(item), /Host edit budget: 8\/8.*View budget: 3\/3/);
   }
   assert.equal(completed.events.find(event => event.name === 'getRestorationDesign' && event.state === 'complete').output.editsRemaining, 0);
-  assert.equal(model.doStreamCalls.length, 11);
+  assert.equal(model.doStreamCalls.length, 24);
 });
 
 test('combined view/edit calls and multiple edit calls never produce competing actions', async t => {
@@ -320,6 +515,9 @@ test('tool errors, provider errors, incomplete and token-limited streams cannot 
     assert.deepEqual(handoffs(result), [], variant);
     assert.equal(result.events.some(event => event.type === 'done'), false, variant);
     assert.ok(result.events.some(event => event.type === 'error'), variant);
+    if (variant === 'length' || variant === 'partial-input') assert.ok(result.events.some(event => event.code === 'output-limit'), variant);
+    if (variant === 'provider-error') assert.ok(result.events.some(event => event.code === 'provider'), variant);
+    if (variant === 'throw') assert.ok(result.events.some(event => event.code === 'request'), variant);
     assert.doesNotMatch(JSON.stringify(result.events), /private upstream payload/);
     assert.equal(model.doStreamCalls.length, 2, variant);
   }

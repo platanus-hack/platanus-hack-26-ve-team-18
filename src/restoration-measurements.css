@@ -1,0 +1,8 @@
+.restoration-measurement-scroll { overflow-x: auto; max-width: 100%; }
+.restoration-measurements table { width: 100%; border-collapse: collapse; font-size: .72rem; text-align: left; }
+.restoration-measurements th, .restoration-measurements td { padding: .5rem; vertical-align: top; border-bottom: 1px solid #dbe7ef; }
+.restoration-measurements th { font-weight: 600; }
+.restoration-measurements small { display: block; margin-top: .2rem; font-size: .65rem; color: #52647a; }
+.restoration-measurements tr[data-status="fail"] th { border-left: 3px solid #c26233; }
+.restoration-measurements tr[data-status="unknown"] th { border-left: 3px solid #8fa4ba; }
+.restoration-measurements tr[data-status="pass"] th { border-left: 3px solid #32829d; }

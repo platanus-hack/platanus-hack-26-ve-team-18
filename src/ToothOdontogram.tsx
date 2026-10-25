@@ -78,7 +78,7 @@ export function ToothOdontogram({
                       className={`tooth-btn status-${status} ${isSelected ? 'selected' : ''} ${index === 7 ? 'midline-right' : ''}`}
                       onClick={() => onSelectFdi(fdi)}
                       aria-pressed={isSelected}
-                      title={`Diente FDI ${fdi} · ${planned ? 'Implante planificado' : missing ? 'Ausente' : present ? 'Presente' : 'Diente natural'}`}
+                      title={`Diente FDI ${fdi} · ${planned ? 'Implante planificado' : missing ? 'Ausente' : present ? 'Presente' : teeth[fdi]?.status === 'not-scanned' ? 'No escaneado' : 'Sin revisar'}`}
                       aria-label={`Diente FDI ${fdi}`}
                     >
                       <span className="tooth-fdi-label">{fdi}</span>

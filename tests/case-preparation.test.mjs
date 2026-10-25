@@ -86,6 +86,35 @@ test('explicit patient-right reverses draft FDI while candidate geometry stays t
   assert.equal(right.id, 7);
 });
 
+test('an unresolved lower site retains independently identified upper opposing crowns', () => {
+  const lower = arch(7, { missing: 3 });
+  for (let i = 2; i < lower.length; i += 3) lower[i] = 5 - lower[i];
+  const localized = prepareCase(request({ sources: [{ id: 'lower', arch: 'lower', positions: lower }] }));
+  const gap = localized.sites.find(site => site.kind === 'bounded');
+  assert.ok(gap?.frame);
+  const crown = right.scans[0].analysis.teeth.find(tooth => tooth.fdi !== null);
+  const upper = positions.slice();
+  for (let i = 0; i < upper.length; i += 3) {
+    upper[i] += gap.frame.origin[0] - crown.centroid[0];
+    upper[i + 1] += gap.frame.origin[1] - crown.centroid[1];
+  }
+  const result = prepareCase(request({
+    sources: [{ id: 'upper', arch: 'upper', positions: upper }, { id: 'lower', arch: 'lower', positions: lower }],
+    patientRight: { upper: 'image-right', lower: null }, poseVerified: false, confidenceThreshold: 0,
+  }));
+  const site = result.sites.find(site => site.partId === 'lower' && site.kind === 'bounded');
+  assert.ok(site, 'the synthetic lower arch must retain its localized gap');
+  assert.equal(site.fdi, null);
+  assert.ok(site.opposing?.teeth.length, 'the posed upper crown must be included geometrically');
+  const numbered = site.opposing.teeth.filter(tooth => tooth.fdi !== null);
+  assert.ok(numbered.length, 'site uncertainty must not erase the other arch’s identity');
+  for (const tooth of numbered) {
+    const identity = result.identities.find(item => item.partId === tooth.partId && item.candidateId === tooth.toothId);
+    assert.equal(tooth.fdi, identity.fdi);
+  }
+  assert.equal(site.opposing.poseVerified, false);
+});
+
 test('the configured threshold changes exception flags without changing geometry or scores', () => {
   const low = prepareCase(request({ patientRight: { 'arch-a': 'image-right' }, confidenceThreshold: 0 }));
   const high = prepareCase(request({ patientRight: { 'arch-a': 'image-right' }, confidenceThreshold: 1 }));

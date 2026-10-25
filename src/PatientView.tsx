@@ -1,11 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
-import type { ModelPart, Vec3 } from './models';
+import type { ModelPart } from './models';
 import type { ToothCase } from './tooth-types';
-import type { RestorationAssembly, RestorationSpec } from './restoration-types';
+import type { RestorationAssembly } from './restoration-types';
 import { Viewport } from './Viewport';
 import { ToothOdontogram } from './ToothOdontogram';
-import { toothName, toothNameEs } from './teeth';
-import { generateRestoration } from './restoration-geometry';
+import { toothNameEs } from './teeth';
 import { importModels } from './import-models';
 import './patient-view.css';
 
@@ -20,32 +19,6 @@ interface PatientViewProps {
   onClose: () => void;
 }
 
-const THETA = 0.165;
-const COS_T = Math.cos(THETA);
-const SIN_T = Math.sin(THETA);
-
-const DEMO_SPEC: RestorationSpec = {
-  version: 'implant-assembly/v1',
-  fdi: 21,
-  parentPartId: 'upper',
-  anatomy: 'incisor',
-  frame: {
-    origin: [2.5, -21.5, 7.8] as Vec3,
-    u: [1, 0, 0] as Vec3,
-    v: [0, -COS_T, SIN_T] as Vec3,
-    up: [0, -SIN_T, -COS_T] as Vec3,
-  },
-  anatomicalSigns: { mesial: -1, buccal: 1 },
-  parameters: {
-    fixture: { radius: 1.9, length: 11.5, depth: 1.5, taper: 0.15 },
-    abutment: { radius: 1.7, height: 1.6, emergenceRadius: 2.0, angleX: 0, angleY: 0 },
-    crown: { width: 8.0, depth: 6.8, height: 8.0, cuspHeight: 0.5, rotation: 0 },
-  },
-  provenance: 'clinician-entered',
-  units: 'file units (u)',
-  source: 'Demo patient restoration',
-};
-
 export function PatientView({
   parts,
   referenceParts = [],
@@ -56,7 +29,9 @@ export function PatientView({
   onSelectTooth,
   onClose,
 }: PatientViewProps) {
-  const isDemoMode = parts.length === 0;
+  const [demoAttempt, setDemoAttempt] = useState(0);
+  const hasCaseParts = parts.length > 0 || referenceParts.length > 0;
+  const isDemoMode = demoAttempt > 0 && !hasCaseParts;
 
   // Layer visibility toggles
   const [showArch, setShowArch] = useState(true);
@@ -65,38 +40,42 @@ export function PatientView({
   const [showBone, setShowBone] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
   const [demoArchParts, setDemoArchParts] = useState<ModelPart[]>([]);
-  const [loadingMeshes, setLoadingMeshes] = useState(isDemoMode);
+  const [loadingMeshes, setLoadingMeshes] = useState(false);
+  const [demoError, setDemoError] = useState('');
 
-  // Default patient info
+  // Example patient information is only shown after explicitly loading the demo.
   const patientName = isDemoMode ? 'Sofia M.' : 'Paciente';
-  const caseId = isDemoMode ? 'PLT-2026-084' : 'CASO-ACTIVO';
-  const doctorNote = isDemoMode
-    ? 'Evaluación y diagnóstico digital 3D de tus arcadas dentales. Ambas arcadas (superior e inferior) presentan adecuada alineación anatómica, contactos oclusales estables y tejidos gingivales saludables. Se recomienda mantener tu rutina de higiene y realizar control preventivo periódico.'
-    : 'Evaluación y registro clínico digital de tus arcadas dentales.';
+  const caseId = 'PLT-2026-084';
 
   const [internalSelectedFdi, setInternalSelectedFdi] = useState<number | null>(selectedFdi ?? 21);
 
-  // In demo mode, load full upper and lower arches with realistic UV textures
+  // Never fetch sample assets merely because the current case is empty.
   useEffect(() => {
-    if (!isDemoMode) return;
+    if (!isDemoMode) {
+      setDemoArchParts([]);
+      setLoadingMeshes(false);
+      setDemoError('');
+      if (hasCaseParts) setDemoAttempt(0);
+      return;
+    }
     let cancelled = false;
+    const controller = new AbortController();
     setLoadingMeshes(true);
+    setDemoError('');
+
+    const loadFile = async (name: string, type: string) => {
+      const response = await fetch(`/patient-demo/${name}`, { signal: controller.signal });
+      if (!response.ok) throw new Error(`Could not load ${name}`);
+      return new File([await response.blob()], name, { type });
+    };
 
     Promise.all([
-      fetch('/patient-demo/upper.ply')
-        .then(r => r.blob())
-        .then(b => new File([b], 'upper.ply', { type: 'application/octet-stream' })),
-      fetch('/patient-demo/upper.jpg')
-        .then(r => r.blob())
-        .then(b => new File([b], 'upper.jpg', { type: 'image/jpeg' })),
-      fetch('/patient-demo/lower.ply')
-        .then(r => r.blob())
-        .then(b => new File([b], 'lower.ply', { type: 'application/octet-stream' })),
-      fetch('/patient-demo/lower.jpg')
-        .then(r => r.blob())
-        .then(b => new File([b], 'lower.jpg', { type: 'image/jpeg' })),
+      loadFile('upper.ply', 'application/octet-stream'),
+      loadFile('upper.jpg', 'image/jpeg'),
+      loadFile('lower.ply', 'application/octet-stream'),
+      loadFile('lower.jpg', 'image/jpeg'),
     ])
-      .then(files => importModels(files))
+      .then(files => cancelled ? null : importModels(files))
       .then(res => {
         if (!cancelled && res && res.parts.length > 0) {
           const tagged = res.parts.map(p => ({
@@ -106,8 +85,8 @@ export function PatientView({
           setDemoArchParts(tagged);
         }
       })
-      .catch(err => {
-        console.warn('Demo arches could not be loaded:', err);
+      .catch(() => {
+        if (!cancelled) setDemoError('No se pudo cargar el modelo de demostración. Puedes reintentarlo.');
       })
       .finally(() => {
         if (!cancelled) setLoadingMeshes(false);
@@ -115,8 +94,9 @@ export function PatientView({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [isDemoMode]);
+  }, [isDemoMode, demoAttempt, hasCaseParts]);
 
   // Construct active parts for 3D viewing (in demo mode, render the clean textured dental arches)
   const activeParts = useMemo(() => {
@@ -126,14 +106,14 @@ export function PatientView({
 
   // Synthetic tooth case for demo
   const effectiveTeeth = useMemo(() => {
-    if (!isDemoMode && Object.keys(toothData.teeth).length > 0) return toothData.teeth;
+    if (!isDemoMode) return toothData.teeth;
     const teethMap: ToothCase['teeth'] = {};
     for (let fdi = 11; fdi <= 48; fdi++) {
       if (fdi % 10 >= 1 && fdi % 10 <= 8) {
         if (fdi % 10 === 8) {
-          teethMap[fdi] = { status: 'unreviewed', restoration: 'none', note: 'Tercer molar ausente' };
+          teethMap[fdi] = { status: 'unreviewed', restoration: 'none', note: 'Sin registro en la demostración' };
         } else {
-          teethMap[fdi] = { status: 'present', restoration: 'none', note: 'Diente natural sano' };
+          teethMap[fdi] = { status: 'present', restoration: 'none', note: 'Diente natural (ejemplo)' };
         }
       }
     }
@@ -153,16 +133,18 @@ export function PatientView({
   };
 
   // Selected tooth properties
-  const isSelectedPlanned = activeParts.some(p => p.restoration && p.id.includes(String(activeFdi)));
-  const isSelectedMissing = effectiveTeeth[activeFdi]?.status === 'missing';
-  const isSelectedPresent = effectiveTeeth[activeFdi]?.status === 'present';
+  const selectedTooth = effectiveTeeth[activeFdi];
+  const selectedStatus = selectedTooth?.status;
+  const selectedStatusLabel = selectedStatus === 'missing' ? 'Ausente (registrado)'
+    : selectedStatus === 'present' ? 'Presente (registrado)'
+    : selectedStatus === 'not-scanned' ? 'No escaneado' : 'Sin revisar';
 
   // Compute customized opacities for layers
   const computedOpacities = useMemo(() => {
     const next: Record<string, number> = { ...initialOpacities };
 
     activeParts.forEach(part => {
-      const isRestoration = part.id.includes('restoration') || part.id.startsWith('demo-') || part.restoration;
+      const isRestoration = !!part.restoration;
       const component = part.restoration?.component;
 
       if (!isRestoration) {
@@ -191,7 +173,9 @@ export function PatientView({
   };
 
   const whatsappMessage = encodeURIComponent(
-    `Hola, soy ${patientName} y estuve revisando mi informe dental 3D de Céflow Dental (Caso ${caseId}). Quisiera coordinar mi cita de control preventivo.`
+    isDemoMode
+      ? `Hola, estuve revisando la demostración de Céflow Dental (Caso de ejemplo ${caseId}, ${patientName}). Quisiera más información.`
+      : 'Hola, estuve revisando la vista 3D de mi caso en Céflow Dental. Quisiera consultar con mi odontólogo.'
   );
 
   return (
@@ -226,45 +210,58 @@ export function PatientView({
               <img src="/brand/ceflow-logo-navy.png" alt="Céflow" className="ceflow-logo ceflow-logo--light" />
               <img src="/brand/ceflow-logo-periwinkle.png" alt="Céflow" className="ceflow-logo ceflow-logo--dark" />
             </span>
-            <span className="patient-header-badge">INFORME CLÍNICO 3D</span>
+            <span className="patient-header-badge">{isDemoMode ? 'Demostración · datos de ejemplo' : 'VISTA DEL CASO 3D'}</span>
           </div>
           <h1>Informe para {patientName}</h1>
           <p>
-            Caso #{caseId} · Compartido el 24 de octubre de 2026 · Planificación digital preliminar.
-            No sustituye una consulta presencial.
+            {isDemoMode
+              ? `Caso de ejemplo #${caseId} · Fotografías, notas y registros ilustrativos.`
+              : 'Vista de los archivos y registros disponibles del caso.'}
+            {' '}No sustituye una consulta presencial.
           </p>
         </header>
 
-        {/* Card 1: Notas de tu dentista */}
+        {/* Card 1: Case guidance or explicitly requested sample notes */}
         <section className="patient-card">
           <h2>
             <span className="card-icon">📝</span>
-            Notas de tu dentista
+            {isDemoMode ? 'Notas de tu dentista (ejemplo)' : hasCaseParts ? 'Escaneos importados' : 'Sin escaneos importados'}
           </h2>
-          <p className="patient-note">{doctorNote}</p>
+          <p className="patient-note">
+            {isDemoMode
+              ? 'Ejemplo ilustrativo de seguimiento preventivo. Las notas y el odontograma de esta demostración no son una evaluación de tu caso.'
+              : hasCaseParts
+              ? 'Esta vista muestra tus archivos importados y los registros del odontograma. No hay notas clínicas generales disponibles.'
+              : 'Usa Modo Doctor para importar tus propios archivos. También puedes cargar una demostración con datos de ejemplo.'}
+          </p>
+          {!isDemoMode && !hasCaseParts && (
+            <button type="button" className="btn-patient-doctor" onClick={() => setDemoAttempt(attempt => attempt + 1)}>
+              Cargar demostración
+            </button>
+          )}
         </section>
 
         {/* Card 2: Tu revisión en fotos */}
-        <section className="patient-card">
+        {isDemoMode && <section className="patient-card">
           <h2>
             <span className="card-icon">📸</span>
-            Tu revisión en fotos
+            Tu revisión en fotos (ejemplo)
           </h2>
           <div className="patient-photos">
             <figure>
-              <img src="/patient-demo/photo-frontal.jpg" alt="Fotografía clínica frontal de tu boca" />
+              <img src="/patient-demo/photo-frontal.jpg" alt="Fotografía frontal de demostración" />
               <figcaption>Vista Frontal</figcaption>
             </figure>
             <figure>
-              <img src="/patient-demo/photo-upper.jpg" alt="Fotografía oclusal de tu arcada superior" />
+              <img src="/patient-demo/photo-upper.jpg" alt="Fotografía de demostración de la arcada superior" />
               <figcaption>Arcada Superior</figcaption>
             </figure>
             <figure>
-              <img src="/patient-demo/photo-lower.jpg" alt="Fotografía oclusal de tu arcada inferior" />
+              <img src="/patient-demo/photo-lower.jpg" alt="Fotografía de demostración de la arcada inferior" />
               <figcaption>Arcada Inferior</figcaption>
             </figure>
           </div>
-        </section>
+        </section>}
 
         {/* Card 3: Tu odontograma */}
         <section className="patient-card">
@@ -272,6 +269,7 @@ export function PatientView({
             <span className="card-icon">🦷</span>
             Tu odontograma
           </h2>
+          {!isDemoMode && <p className="patient-hint">Los dientes sin registro permanecen sin revisar.</p>}
           <ToothOdontogram
             teeth={effectiveTeeth}
             assemblies={assemblies}
@@ -282,19 +280,13 @@ export function PatientView({
             <strong>
               Diente FDI {activeFdi} · {toothNameEs(activeFdi)}
               <span
-                className={`status-chip ${
-                  isSelectedPlanned ? 'planned' : isSelectedMissing ? 'missing' : 'present'
-                }`}
+                className={`status-chip ${selectedStatus === 'present' || selectedStatus === 'missing' ? selectedStatus : ''}`}
               >
-                {isSelectedPlanned
-                  ? 'Plan de tratamiento'
-                  : isSelectedMissing
-                  ? 'Ausente estimado'
-                  : 'Presente natural'}
+                {selectedStatusLabel}
               </span>
             </strong>
             <p className="tooth-quote">
-              “Pieza dental natural en posición anatómica armónica, con esmalte íntegro y adecuada función oclusal en tu mordida.”
+              {selectedTooth?.note || 'No hay notas registradas para este diente.'}
             </p>
           </div>
         </section>
@@ -308,6 +300,12 @@ export function PatientView({
           <p className="patient-hint">
             Explora tu boca en 3D. Usa un dedo o el ratón para rotar, y pellizca para hacer zoom.
           </p>
+          {isDemoMode && demoError && <div role="alert">
+            <p>{demoError}</p>
+            <button type="button" className="btn-patient-doctor" onClick={() => setDemoAttempt(attempt => attempt + 1)}>
+              Reintentar demostración
+            </button>
+          </div>}
 
           <div className="patient-viewport-box">
             {loadingMeshes && (
@@ -326,7 +324,7 @@ export function PatientView({
               heatmap={false}
               wireframe={false}
               onProbe={() => {}}
-              onImport={() => {}}
+              onImport={onClose}
               compact={false}
             />
           </div>
@@ -340,7 +338,7 @@ export function PatientView({
                 onChange={e => setShowArch(e.target.checked)}
               />
               <span className="swatch arch" />
-              Tus dientes ({activeParts.filter(p => !p.id.startsWith('demo-')).length ? 'Arcadas completas' : 'Modelo dental'})
+              Tus dientes ({isDemoMode ? 'Modelo de demostración' : 'Escaneos importados'})
             </label>
             {activeParts.some(p => p.restoration?.component === 'crown') && (
               <label className="layer-item">
@@ -350,7 +348,7 @@ export function PatientView({
                   onChange={e => setShowCrown(e.target.checked)}
                 />
                 <span className="swatch crown" />
-                Corona de circonio
+                Corona (concepto)
               </label>
             )}
             {activeParts.some(p => p.restoration?.component === 'fixture') && (
@@ -361,17 +359,17 @@ export function PatientView({
                   onChange={e => setShowImplant(e.target.checked)}
                 />
                 <span className="swatch implant" />
-                Implante de titanio
+                Implante (concepto)
               </label>
             )}
           </div>
         </section>
 
         {/* Card 5: Tu evaluación diagnóstica */}
-        <section className="patient-card">
+        {isDemoMode && <section className="patient-card">
           <h2>
             <span className="card-icon">📋</span>
-            Tu evaluación diagnóstica
+            Tu evaluación diagnóstica (ejemplo)
           </h2>
           <div className="plan-list">
             <div>
@@ -388,15 +386,15 @@ export function PatientView({
             </div>
           </div>
           <p className="patient-hint">
-            Métricas de tu caso: Arcada superior 78.4 mm · Distancia intercanina 34.2 mm · Oclusión estable.
+            Datos ilustrativos; no hay mediciones verificadas para este caso de ejemplo.
           </p>
-        </section>
+        </section>}
 
         {/* Card 6: Fases de seguimiento preventivo */}
-        <section className="patient-card">
+        {isDemoMode && <section className="patient-card">
           <h2>
             <span className="card-icon">⏱️</span>
-            Fases de seguimiento preventivo
+            Fases de seguimiento preventivo (ejemplo)
           </h2>
           <div className="timeline-steps">
             <div className="timeline-item done">
@@ -421,7 +419,7 @@ export function PatientView({
               </div>
             </div>
           </div>
-        </section>
+        </section>}
 
         {/* Card 7: WhatsApp Contact */}
         <section className="patient-card whatsapp-card">
@@ -430,8 +428,9 @@ export function PatientView({
             ¿Tienes dudas sobre tu revisión?
           </h2>
           <p className="patient-note">
-            Tu odontólogo especialista ha preparado este informe digital para que conozcas tu salud dental. Si
-            deseas agendar tu cita de control preventivo o hacer alguna pregunta, contáctanos directamente.
+            {isDemoMode
+              ? 'Estás explorando una demostración con datos de ejemplo. Puedes compartir una consulta por WhatsApp.'
+              : 'Puedes compartir una consulta sobre los archivos y registros disponibles con tu odontólogo por WhatsApp.'}
           </p>
           <a
             href={`https://wa.me/?text=${whatsappMessage}`}

@@ -47,6 +47,8 @@ const pairSchema = z.object({
   a: scanId,
   b: scanId,
   intersectingTriangles: count,
+  crossingTriangles: count.optional(),
+  contactTriangles: count.optional(),
   penetratingVertices: count,
   nearbyVertices: count,
   minDistance: nonnegative.nullable(),
@@ -231,6 +233,7 @@ export function buildAssistantSnapshot({
       pairs: report.pairs.map(pair => ({
         a: ids.get(pair.a)!, b: ids.get(pair.b)!,
         intersectingTriangles: countOrNull(pair.intersectingTriangles),
+        crossingTriangles: countOrNull(pair.crossingTriangles), contactTriangles: countOrNull(pair.contactTriangles),
         penetratingVertices: countOrNull(pair.penetratingVertices), nearbyVertices: countOrNull(pair.nearbyVertices),
         minDistance: positiveOrNull(pair.minDistance), maxDepth: positiveOrNull(pair.maxDepth),
       })),

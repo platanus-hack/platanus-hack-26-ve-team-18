@@ -1,6 +1,8 @@
-import { fitRestoration, RestorationFitCancelled } from './restoration-fitting.ts';
+import { RestorationFitCancelled } from './restoration-fitting.ts';
+import { fitRestorationToGoals } from './restoration-goal-fitting.ts';
 import type { RestorationFitWorkerRequest, RestorationFitWorkerResponse } from './restoration-types';
-import { fittingSurfaces, withPatientDonor, withQualityContext } from './workflow-geometry.ts';
+import { fittingSurfaces, withAIGenerationDesign, withPatientDonor, withQualityContext } from './workflow-geometry.ts';
+import { measureRestorationRelationships, RestorationRelationshipsCancelled } from './restoration-relationships.ts';
 
 let active: { id: number; cancelled: boolean } | null = null;
 const send = (message: RestorationFitWorkerResponse, transfer: ArrayBuffer[] = []) => globalThis.postMessage(message, { transfer });
@@ -21,11 +23,14 @@ globalThis.onmessage = (event: MessageEvent<RestorationFitWorkerRequest>) => {
   active = job;
   const prepare = async () => {
     if (data.type === 'fit') return data.input;
-    const anatomySpec = data.spec.crownShape || data.spec.provenance === 'clinician-entered'
-      ? data.spec : withPatientDonor(data.spec, data.site, data.scans, data.parts);
+    const anatomySpec = data.generationDesign !== undefined
+      ? withAIGenerationDesign(data.spec, data.site, data.scans, data.parts, data.generationDesign)
+      : data.spec.crownShape || data.spec.provenance === 'clinician-entered'
+        ? data.spec : withPatientDonor(data.spec, data.site, data.scans, data.parts);
     const spec = withQualityContext(anatomySpec, data.site, data.scans);
     const surfaces = fittingSurfaces(spec, data.parts, data.teeth, data.site, data.scans);
-    return { spec, surfaces, options: data.options };
+    return { spec, surfaces, goalContract: data.goalContract, options: data.generationDesign !== undefined
+      ? { ...data.options, maxCandidates: 1, verifyBaselineIntersections: true } : data.options };
   };
   const control = {
     checkCancelled: () => job.cancelled || active !== job,
@@ -33,7 +38,14 @@ globalThis.onmessage = (event: MessageEvent<RestorationFitWorkerRequest>) => {
       if (!job.cancelled && active === job) send({ type: 'progress', id: job.id, phase, fdi: data.type === 'fit' ? data.input.spec.fdi : data.spec.fdi });
     },
   };
-  const operation = data.type === 'fit' ? fitRestoration(data.input, control) : prepare().then(input => fitRestoration(input, control));
+  const operation = prepare().then(async input => {
+    if (!job.cancelled && active === job) send({ type: 'targets', id: job.id, targetIds: input.surfaces.map(surface => surface.id) });
+    const result = await fitRestorationToGoals({ ...input, options: { ...input.options,
+      verifyBaselineIntersections: input.options?.verifyBaselineIntersections ?? input.options?.maxCandidates === 1 } }, control);
+    result.report.relationships = await measureRestorationRelationships({ spec: result.spec, components: result.components, surfaces: input.surfaces },
+      { checkCancelled: control.checkCancelled, yieldControl: () => new Promise(resolve => setTimeout(resolve, 0)) });
+    return result;
+  });
   void operation.then(result => {
     if (job.cancelled || active !== job) return;
     const transfer: ArrayBuffer[] = [];
@@ -46,7 +58,7 @@ globalThis.onmessage = (event: MessageEvent<RestorationFitWorkerRequest>) => {
     }
     send({ type: 'result', id: job.id, result }, transfer);
   }).catch((error: unknown) => {
-    if (error instanceof RestorationFitCancelled) send({ type: 'cancelled', id: job.id });
+    if (error instanceof RestorationFitCancelled || error instanceof RestorationRelationshipsCancelled) send({ type: 'cancelled', id: job.id });
     else send({ type: 'error', id: job.id, error: error instanceof Error ? error.message : String(error) });
   }).finally(() => { if (active === job) active = null; });
 };

@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+body{margin:0;color:var(--foreground);font-family:var(--font-sans);background:transparent}
+main{display:grid;gap:16px}
+.common{text-align:center;padding:10px 0}
+.label{font-weight:500}
+.sub{color:var(--muted-foreground);margin-top:5px}
+.lanes{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.lane{display:grid;grid-template-rows:auto auto auto auto;gap:12px;text-align:center}
+.name{font-weight:500;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.arrow{color:var(--muted-foreground);text-align:center}
+.worker{padding:16px;background:var(--secondary);color:var(--secondary-foreground);border-radius:var(--radius);text-align:center}
+.parts{display:flex;justify-content:center;gap:20px;flex-wrap:wrap;margin-top:10px}
+.parts span{font-weight:500}
+@media(max-width:460px){.lanes{gap:12px}.parts{gap:12px}.sub{overflow-wrap:anywhere}}
+</style></head><body>
+<main aria-label="Tooth generation: AI and local workflow comparison">
+<div class="common"><div class="label">Imported scans → localized gap</div><div class="sub">Surface anchor · orientation · available space</div></div>
+<div class="lanes">
+<section class="lane" aria-label="AI design path">
+<div class="name">AI workflow</div>
+<div><div class="label">AI specifies the design</div><div class="sub">Dimensions · anatomy source · contour</div></div>
+<div class="arrow" aria-hidden="true">↓</div>
+<div><div class="label">Exact construction</div><div class="sub">Requested donor or procedural template</div></div>
+</section>
+<section class="lane" aria-label="Local design path">
+<div class="name">Local workflow</div>
+<div><div class="label">Geometry supplies defaults</div><div class="sub">Gap and neighboring surface measurements</div></div>
+<div class="arrow" aria-hidden="true">↓</div>
+<div><div class="label">Initial construction</div><div class="sub">Eligible mirrored donor or template</div></div>
+</section>
+</div>
+<div class="worker"><div class="label">Local worker builds triangle meshes</div><div class="parts"><span>Fixture</span><span>Pilar / abutment</span><span>Crown</span></div></div>
+<div class="lanes">
+<div><div class="arrow" aria-hidden="true">↓</div><div class="common"><div class="label">Measure exact design</div><div class="sub">Later AI revisions → measure → accept or reject</div></div></div>
+<div><div class="arrow" aria-hidden="true">↓</div><div class="common"><div class="label">Bounded automatic fitting</div><div class="sub">Regenerate candidates → measure → select</div></div></div>
+</div>
+<div class="common"><div class="label">Editable 3D planning concept + measured checks</div><div class="sub">File units · contact and crossing evidence · unresolved limits</div></div>
+</main></body></html>

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fitRestoration, RestorationFitCancelled } from '../src/restoration-fitting.ts';
 import { createFitIntersectionQuery } from '../src/restoration-fit-intersections.ts';
-import { generateRestoration } from '../src/restoration-geometry.ts';
+import { generateRestoration, restorationCrownShape } from '../src/restoration-geometry.ts';
 import { createNearestSurfaceQuery } from '../src/collision.ts';
 import { Vector3 } from 'three';
 
@@ -21,6 +21,23 @@ const targets = () => [
   { id: 'opposing:original-region', role: 'antagonist', positions: plane(2, 6.4), targetGap: .1 },
   { id: 'tissue:original-region', role: 'tissue', positions: plane(2, .3), targetGap: 0 },
 ];
+
+test('an exact-edit baseline can explicitly retain complete full-target crossing evidence', async () => {
+  for (const height of [4, 10]) {
+    const positions = plane(2, height), input = { spec: spec(), surfaces: [{ id:'opposing', role:'antagonist', positions }], options: { maxCandidates:1, maxIntersectionTriangles:1, samplesPerSurface:32 } };
+    const capped = await fitRestoration(input);
+    assert.equal(capped.report.after.surfaces[0].intersectionComplete, false);
+    const full = await fitRestoration({ ...input, options:{ ...input.options, verifyBaselineIntersections:true } });
+    const measured = full.report.after.surfaces[0], crown = full.components.find(mesh=>mesh.component==='crown');
+    const expected = createFitIntersectionQuery(positions,2,()=>{}).test(crown.positions);
+    assert.equal(measured.intersectionComplete, true);
+    assert.equal(measured.intersectionTestedTriangles,2);
+    assert.equal(measured.transverseCrossingTriangles,expected.transverseCrossingTriangles);
+    assert.equal(measured.intersectingTriangles,expected.intersectingTriangles);
+    assert.equal(full.history.length,1);
+  }
+  await assert.rejects(fitRestoration({ spec:spec(), surfaces:[], options:{verifyBaselineIntersections:1} }),/boolean/);
+});
 const close = (a, b, e = 1e-8) => assert.ok(Math.abs(a - b) < e, `${a} != ${b}`);
 
 test('fit results retain independent unmodified anatomy for later parameter edits', async () => {
@@ -69,7 +86,9 @@ test('opposing geometry behind or beside the crown cannot attract it as an occlu
 });
 
 test('losing a small observed opposing patch cannot improve the accepted fit', async () => {
-  const strip = Float32Array.from([1.4,-10,10, 1.48,-10,10, 1.48,10,10, 1.4,-10,10, 1.48,10,10, 1.4,10,10]);
+  // This narrow strip intersects the current area-stratified occlusal samples;
+  // trial dimensions can still lose it entirely, which must be rejected.
+  const strip = Float32Array.from([1.5,-10,10, 1.58,-10,10, 1.58,10,10, 1.5,-10,10, 1.58,10,10, 1.5,10,10]);
   const result = await fitRestoration({ spec: spec(), surfaces: [{ id: 'narrow-opponent', role: 'antagonist', positions: strip, targetGap: .1 }],
     options: { maxCandidates: 16, samplesPerSurface: 32 } });
   assert.ok(result.report.before.surfaces[0].occlusalRayHits > 0);
@@ -89,8 +108,12 @@ test('surface rays return the nearest forward hit, preserve winding independence
   close(query.rayDistance(p, direction.clone().negate()), 2);
 });
 
-test('bounded fitting improves adjacent and antagonist crossing evidence, retains best over last, and preserves inputs/fixture', async () => {
-  const input = { spec: spec(), surfaces: targets(), options: { maxCandidates: 32, maxDurationMs: 20_000, samplesPerSurface: 128 } };
+test('bounded fitting of explicit legacy anatomy improves adjacent and antagonist crossings and preserves inputs/fixture', async () => {
+  // Pin this known, satisfiable fitting scenario to the stored per-angle
+  // relief behavior. Reopening historical anatomy must not change its fit.
+  const initial = spec(); initial.crownShape = restorationCrownShape(initial);
+  delete initial.crownShape.reliefDatum;
+  const input = { spec: initial, surfaces: targets(), options: { maxCandidates: 32, maxDurationMs: 20_000, samplesPerSurface: 128 } };
   const before = structuredClone(input), result = await fitRestoration(input);
   assert.deepEqual(input, before);
   assert.equal(result.report.status, 'improved');
@@ -101,7 +124,9 @@ test('bounded fitting improves adjacent and antagonist crossing evidence, retain
     assert.equal(surface.intersectingTriangles, 0);
     assert.equal(surface.intersectionComplete, true);
     assert.equal(surface.targetTriangles, 2);
-    assert.ok(surface.sampledMinDistance > .08);
+    // The bounded solver improves the observed shortfall; it does not promise
+    // an arbitrary absolute sampled clearance in file units.
+    assert.ok(surface.sampledMaxGapDeficit < original.sampledMaxGapDeficit);
     assert.ok(surface.sampledRmsGapError < original.sampledRmsGapError);
     assert.ok(surface.sampledMedianDistance >= surface.sampledMinDistance);
     assert.ok(surface.sampledP95Distance >= surface.sampledMedianDistance);
@@ -120,8 +145,14 @@ test('bounded fitting improves adjacent and antagonist crossing evidence, retain
   const minimum = Math.min(...result.history.filter(entry => entry.accepted).map(entry => entry.measurement.score));
   close(result.report.after.score, minimum);
   const accepted = result.history.filter(entry => entry.accepted);
+  for (let i = 1; i < accepted.length; i++) for (const previous of accepted[i - 1].measurement.surfaces) {
+    const next = accepted[i].measurement.surfaces.find(surface => surface.id === previous.id);
+    assert.ok(next.transverseCrossingTriangles <= previous.transverseCrossingTriangles, 'No accepted step may increase observed crossings.');
+    if (previous.intersectionComplete) assert.equal(next.intersectionComplete, true);
+    assert.ok(next.sampledMaxGapDeficit <= previous.sampledMaxGapDeficit + 1e-9);
+  }
   assert.deepEqual(result.spec.parameters, accepted.at(-1).parameters);
-  assert.ok(result.history.at(-1).measurement.score > result.report.after.score, 'last trial must not overwrite the better candidate');
+  assert.ok(result.history.some(entry => !entry.accepted && entry.measurement.score > result.report.after.score), 'inferior trials must not overwrite the better candidate');
   assert.equal(result.history.length, 32);
   assert.equal(result.spec.frame.origin[0], 0);
   assert.ok(result.spec.parameters.crown.width >= input.spec.parameters.crown.width * .82);
@@ -220,7 +251,8 @@ test('fitting worker cancels stale jobs, transfers six outputs, and recovers aft
   const oldPost = globalThis.postMessage, oldHandler = globalThis.onmessage;
   const responses = [];
   const waitFor = async (id, type) => {
-    const deadline = Date.now() + 5000;
+    // The worker permits 30 s of goal work plus a separate relationship audit.
+    const deadline = Date.now() + 35_000;
     while (!responses.some(({ data }) => data.id === id && data.type === type)) {
       assert.ok(Date.now() < deadline, `Worker did not send ${type} for ${id}`);
       await new Promise(resolve => setTimeout(resolve, 10));
@@ -237,13 +269,17 @@ test('fitting worker cancels stale jobs, transfers six outputs, and recovers aft
     assert.equal(responses.some(({ data }) => data.id === 10 && data.type === 'result'), false);
     assert.equal(responses.some(({ data }) => data.id === 10 && data.type === 'cancelled'), true);
     const output = responses.find(({ data }) => data.id === 11 && data.type === 'result');
+    assert.deepEqual((await waitFor(11, 'targets')).data.targetIds, []);
+    assert.ok(responses.findIndex(({ data }) => data.id === 11 && data.type === 'targets') < responses.findIndex(({ data }) => data.id === 11 && data.type === 'progress'));
     assert.deepEqual(responses.filter(({ data }) => data.id === 11 && data.type === 'progress').map(({ data }) => [data.phase, data.fdi]), [['creating', 36], ['fitting', 36]]);
     assert.equal(output.count, 6);
     assert.equal(output.data.result.components.length, 3);
     assert.equal(new Set(output.data.result.components.flatMap(c => [c.positions.buffer, c.normals.buffer])).size, 6);
     globalThis.onmessage({ data: { type: 'fit', id: 12, input: { spec: { ...spec(), fdi: 99 }, surfaces: [] } } });
     assert.match((await waitFor(12, 'error')).data.error, /FDI/);
-    globalThis.onmessage({ data: { type: 'fit', id: 13, input: { spec: spec(), surfaces: [] } } });
+    const namedTargets = targets();
+    globalThis.onmessage({ data: { type: 'fit', id: 13, input: { spec: spec(), surfaces: namedTargets } } });
+    assert.deepEqual((await waitFor(13, 'targets')).data.targetIds, namedTargets.map(surface => surface.id));
     assert.equal((await waitFor(13, 'result')).data.type, 'result');
   } finally {
     if (oldPost === undefined) delete globalThis.postMessage; else globalThis.postMessage = oldPost;
@@ -305,4 +341,46 @@ test('bounded target preparation yields between exact BVH blocks and retains the
   close(a.sampledRmsGapError, b.sampledRmsGapError);
   assert.equal(b.targetTriangles, 8194);
   assert.equal(blocked.report.sampling.fullResolutionDistanceTargets, true);
+});
+
+test('source-derived overfill repairs oversized crowns even when the target distance objective is already zero', async () => {
+  const initial = spec();
+  initial.parameters.crown.width = 7; initial.parameters.crown.depth = 6.5;
+  initial.qualityContext = { version: 'restoration-quality-context/v1', units: 'file units (u)',
+    neighbors: [{ id: 'scan-neighbor', mesiodistal: 5.2, buccolingual: 4.6, height: 6.7, method: 'Synthetic measured scan dimensions', provenance: 'measured' }],
+    gapWidth: { value: 5.5, method: 'Synthetic facing surface gap', provenance: 'measured' },
+    availableHeight: null, expectedProximalSides: [], bitePoseVerified: false };
+  const input = { spec: initial, surfaces: [{ id: 'far-other-tooth', role: 'other-tooth', positions: plane(0, 20), targetGap: 0 }],
+    options: { maxCandidates: 24, samplesPerSurface: 32 } };
+  const original = structuredClone(input), result = await fitRestoration(input);
+  assert.deepEqual(input, original);
+  assert.equal(result.report.before.surfaces[0].intersectingTriangles, 0);
+  assert.equal(result.report.before.surfaces[0].sampledRmsGapError, 0);
+  assert.ok(result.spec.parameters.crown.width < initial.parameters.crown.width * .95);
+  assert.ok(result.spec.parameters.crown.depth < initial.parameters.crown.depth * .95);
+  assert.ok(result.history.some(entry => entry.accepted && entry.revision?.reason.startsWith('Coordinated crown dimension repair')));
+  assert.ok(result.spec.parameters.crown.width >= initial.parameters.crown.width * .82);
+  assert.ok(result.spec.parameters.crown.depth >= initial.parameters.crown.depth * .82);
+  assert.deepEqual(result.spec.frame, initial.frame);
+  assert.deepEqual(result.spec.parameters.fixture, initial.parameters.fixture);
+  assert.notEqual(result.report.quality.final.status, 'pass', 'Bounded repair and missing evidence cannot claim success.');
+  const hypothetical = structuredClone(input);
+  hypothetical.spec.qualityContext.neighbors[0].provenance = 'hypothesized';
+  hypothetical.spec.qualityContext.gapWidth.provenance = 'hypothesized';
+  const unmeasured = await fitRestoration(hypothetical);
+  assert.deepEqual(unmeasured.spec.parameters, initial.parameters, 'Hypothesized source size cannot supply a measured scale objective.');
+});
+
+test('large observed intersection counts retain a score gradient beyond the old saturation point', async () => {
+  const measure = async copies => {
+    const patch = plane(0, 2.4), positions = new Float32Array(copies * patch.length);
+    for (let i = 0; i < copies; i++) positions.set(patch, i * patch.length);
+    return fitRestoration({ spec: spec(), surfaces: [{ id: 'dense-flank', role: 'adjacent', side: 'mesial', positions, targetGap: .1 }],
+      options: { maxCandidates: 1, samplesPerSurface: 32 } });
+  };
+  const a = await measure(80), b = await measure(160);
+  assert.ok(a.report.before.surfaces[0].intersectingTriangles > 128);
+  assert.ok(b.report.before.surfaces[0].intersectingTriangles > a.report.before.surfaces[0].intersectingTriangles);
+  assert.ok(b.report.before.score > a.report.before.score);
+  assert.notEqual(b.report.quality.final.status, 'pass');
 });

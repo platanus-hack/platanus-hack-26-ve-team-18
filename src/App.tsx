@@ -29,13 +29,16 @@ import { AutoTeethPanel } from './AutoTeethPanel';
 import { AssistantPanel } from './AssistantPanel';
 import { PlanningPanel } from './PlanningPanel';
 import { RestorationPanel } from './RestorationPanel';
+import { RestorationFloatingEditor } from './RestorationFloatingEditor';
+import type { RestorationComponentKind } from './restoration-types';
 import { useCasePlanning } from './useCasePlanning';
 import { useRestorations } from './useRestorations';
 import { attachTexture } from './import-models';
 import { canRefineCaseBite, prepareCaseBite } from './scan-groups';
 import { presentationOpacity, withArchOpacity } from './presentation';
 import { SceneVisibility } from './SceneVisibility';
-import { buildPlanningDraft, automaticConceptSites, conceptKey, type PlanningDraft } from './planning-automation';
+import { buildPlanningDraft, automaticConceptSites, aiGenerationPlan, planningDesignRevision, completedConceptKeys, conceptKey, type PlanningDraft } from './planning-automation';
+import type { RestorationGenerationRequest } from './restoration-generation';
 import type { CasePlanningResult } from './case-planning-types';
 import { draftToothCase, reconcileIdentities, identityKey, replaceIdentityCorrection, type IdentityDecisions, type IdentityRegions, type WorkflowProgress } from './draft-workflow';
 import type { SiteHypothesis } from './missing-sites';
@@ -43,10 +46,12 @@ import { planningExportBundle } from './planning-export';
 import { createPlanningSession, readPlanningSession, type PlanningWorkflowState } from './planning-session';
 import type { ProposedConceptSite } from './planning-concepts';
 import { beginWorkflow, stageWorkflow, journalWorkflow, endWorkflow, WORKFLOW_BUDGET, type WorkflowRun, type CorrectionEvent } from './case-workflow';
-import { toothCounts } from './teeth';
 import { ProcessPanel } from './ProcessPanel';
 import { describeProcess } from './guided-process';
 import { useDraftReview } from './useDraftReview';
+import { mappingDisplayIdentity, type ToothDisplayIdentity } from './tooth-display';
+import { applyAIRegionReviews } from './planning-regions';
+import { applySiteDecisions, projectPlanningAssessment } from './planning-projection';
 import { PatientView } from './PatientView';
 
 const count = (value: number) => value.toLocaleString();
@@ -90,6 +95,9 @@ export function App() {
   const [step, setStep] = useState(0);
   const [scansOpen, setScansOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [restorationEditorOpen, setRestorationEditorOpen] = useState(true);
+  const [restorationComponent, setRestorationComponent] = useState<RestorationComponentKind>('crown');
+  const [focusRestoration, setFocusRestoration] = useState(true);
   const [tomographyOpen, setTomographyOpen] = useState(false);
   const [workflowIntent, setWorkflowIntent] = useState<'ai' | 'local' | 'resume' | null>(null);
   const [assessing, setAssessing] = useState(false);
@@ -109,6 +117,12 @@ export function App() {
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
   const [correctionEvents, setCorrectionEvents] = useState<CorrectionEvent[]>([]);
   const [focusedSiteId, setFocusedSiteId] = useState<string | null>(null);
+  const [focusedCaseRegion, setFocusedCaseRegion] = useState<{ partId: string; candidateId: number; revision: string } | null>(null);
+  const [rulerEvidence, setRulerEvidence] = useState<{ distance: number; partIds: string[] } | null>(null);
+  const receiveMeasurement = useCallback((distance: number | null, partIds: string[]) => {
+    const next = distance !== null && Number.isFinite(distance) ? { distance, partIds } : null;
+    setRulerEvidence(current => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+  }, []);
   const [assessmentHistory, setAssessmentHistory] = useState<CasePlanningResult[]>([]);
   const [biteReviewed, setBiteReviewed] = useState(false);
   const [viewMode, setViewMode] = useState<'clinical' | 'patient'>(() => {
@@ -157,7 +171,7 @@ export function App() {
   const [draft, setDraft] = useState<PlanningDraft | null>(null);
   const preparedResult = useRef<CasePlanningResult | null>(null);
   const restoredAssessment = useRef<CasePlanningResult | null>(null);
-  const [pendingConcepts, setPendingConcepts] = useState<{ fdis: number[]; proposals: ProposedConceptSite[]; sites: SiteHypothesis[]; parts: ModelPart[]; revision: string } | null>(null);
+  const [pendingConcepts, setPendingConcepts] = useState<{ fdis: number[]; proposals: ProposedConceptSite[]; sites: SiteHypothesis[]; parts: ModelPart[]; revision: string; aiDesigns?: RestorationGenerationRequest[] } | null>(null);
   const corrections = useRef<HTMLDetailsElement>(null);
   const textureInput = useRef<HTMLInputElement>(null);
   const alignedSources = useRef('');
@@ -202,13 +216,22 @@ export function App() {
   const active = parts.find(part => part.id === selected);
   const tooth = useToothIdentification(parts, selected, setSelected);
   const analysisState: 'ready' | 'running' | 'paused' | 'unavailable' = importing || aligning || busy ? 'running' : paused ? 'paused' : report ? 'ready' : 'unavailable';
-  const planning = useCasePlanning(parts, { parts, selected, selectedFdi: tooth.selectedTooth, probe, report, tolerance, analysisState, teeth: tooth.data.teeth, counts: tooth.counts, fitSummary, fitRadius }, importing || aligning, tooth.data.labels, tooth.data.reviewedMask, { identityDecisions, identityRegions, biteReviewed, confidenceThreshold, tomography: { source: tomographyAiRef, sharing: sharePlanningTomography } });
+  const planning = useCasePlanning(parts, { parts, selected, selectedFdi: tooth.selectedTooth, probe, report, tolerance, analysisState, teeth: tooth.data.teeth, counts: tooth.counts, fitSummary, fitRadius }, importing || aligning, tooth.data.labels, tooth.data.reviewedMask, { identityDecisions, identityRegions, biteReviewed, confidenceThreshold,
+    measurementContext: { mmPerUnit, scaleStatus: mmPerUnit !== null && unitsProvenance.startsWith('Recorded calibration: ') ? 'clinician-entered' : 'unconfirmed', scaleSource: unitsProvenance.startsWith('Recorded calibration: ') ? 'Calibration explicitly recorded in the local case.' : 'Editable scan scale; independent calibration is unconfirmed.', biteReviewed,
+      ...(aperture === 0 && sceneAperture === 0 && rulerEvidence && rulerEvidence.partIds.every(id => parts.some(part => part.id === id && (part.role === 'upper' || part.role === 'lower'))) ? {
+        ruler: { distance: rulerEvidence.distance, units: 'file units (u)', sourceIds: [...new Set(rulerEvidence.partIds.map(id => `scan-${parts.findIndex(part => part.id === id) + 1}`))], method: 'picked-point-straight-line' },
+      } : {}) },
+    tomography: { source: tomographyAiRef, sharing: sharePlanningTomography } });
   const tomographyBasis = JSON.stringify([sharePlanningTomography, ...(sharePlanningTomography ? [tomography.volume?.id, tomography.volume?.complete, tomography.threshold, tomography.stride, tomographyViews, cbctRegistrations, mmPerUnit] : [])]);
-  const identities = useMemo(() => planning.prepared ? reconcileIdentities(planning.prepared, planning.result, parts, confidenceThreshold, identityDecisions, identityRegions) : [], [planning.prepared, planning.result, parts, confidenceThreshold, identityDecisions, identityRegions]);
-  const effectiveCase = useMemo(() => draftToothCase(tooth.data, parts, planning.prepared, identities, identityDecisions, identityRegions), [tooth.data, parts, planning.prepared, identities, identityDecisions, identityRegions]);
-  const hypothesisRevision = planning.evidence ? `${planning.evidence.revision}:${planning.patientRight}:${mmPerUnit}:${JSON.stringify(siteDecisions)}` : null;
+  const preparedCase = useMemo(() => applyAIRegionReviews(planning.prepared, planning.result, parts, tooth.data), [planning.prepared, planning.result, parts, tooth.data]);
+  const identities = useMemo(() => preparedCase ? reconcileIdentities(preparedCase, planning.result, parts, confidenceThreshold, identityDecisions, identityRegions) : [], [preparedCase, planning.result, parts, confidenceThreshold, identityDecisions, identityRegions]);
+  const effectiveCase = useMemo(() => draftToothCase(tooth.data, parts, preparedCase, identities, identityDecisions, identityRegions), [tooth.data, parts, preparedCase, identities, identityDecisions, identityRegions]);
+  const designRevision = useRef('');
+  if (planning.result) designRevision.current = planningDesignRevision(planning.result);
+  if (!planning.evidence) designRevision.current = '';
+  const hypothesisRevision = planning.evidence ? `${planning.evidence.revision}:${planning.patientRight}:${mmPerUnit}:${JSON.stringify(siteDecisions)}:${designRevision.current}` : null;
   const restorations = useRestorations(parts, effectiveCase, hypothesisRevision);
-  const proposedSites = useMemo(() => (planning.prepared?.sites ?? []).map((site): SiteHypothesis => Object.hasOwn(siteDecisions, site.id) ? { ...site, fdi: siteDecisions[site.id], draftIdentity: undefined, status: siteDecisions[site.id] === null ? 'identity-unresolved' : 'proposed-missing', confidence: site.confidence } : site), [planning.prepared, siteDecisions]);
+  const proposedSites = useMemo(() => applySiteDecisions(preparedCase?.sites ?? [], siteDecisions), [preparedCase, siteDecisions]);
   const allParts = useMemo(() => [...parts, ...restorations.displayParts], [parts, restorations.displayParts]);
   const currentRegistrations = useMemo(() => currentCbctRegistrations(cbctRegistrations, parts, tomography.volume?.id, mmPerUnit), [cbctRegistrations, parts, tomography.volume?.id, mmPerUnit]);
   const completeArchRegistration = cbctAssemblyRegistered(currentRegistrations, parts);
@@ -256,9 +279,11 @@ export function App() {
   const bites = parts.filter(part => part.role === 'bite');
   const canAlign = canRefineCaseBite(parts);
   const activeAnalysis = report?.parts.find(part => part.id === selected);
-  const collisions = report?.pairs.filter(pair => pair.intersectingTriangles > 0 || pair.penetratingVertices > 0) ?? [];
+  const collisions = report?.pairs.filter(pair => (pair.crossingTriangles ?? pair.intersectingTriangles) > 0 || pair.penetratingVertices > 0) ?? [];
   const currentReport = !!report && report.parts.length === compared.length && compared.every(part => report.parts.some(row => row.id === part.id));
   const currentAssemblies = restorations.assemblies.filter(assembly => !assembly.warnings.some(warning => warning.startsWith('STALE:')));
+  const selectedRestoration = restorations.assemblies.find(assembly => assembly.id === restorations.selectedId);
+  const selectedRestorationPart = selectedRestoration?.parts.find(part => part.restoration?.component === restorationComponent);
   const assistantContext = useMemo(() => ({ parts: allParts, selected, selectedFdi: tooth.selectedTooth, probe, report, tolerance, analysisState, teeth: tooth.data.teeth, counts: tooth.counts, fitSummary, fitRadius }), [allParts, selected, tooth.selectedTooth, probe, report, tolerance, analysisState, tooth.data.teeth, tooth.counts, fitSummary, fitRadius]);
   const currentRun = workflowRuns.at(-1);
   const savedReview = currentRun?.tools.find(tool => tool.name === 'ai-draft-review');
@@ -267,15 +292,37 @@ export function App() {
   const aiReview = useDraftReview({
     runKey: currentRun?.id ?? null, enabled: aiReviewEnabled, ready: aiReviewReady, model: planning.result?.model ?? planning.model,
     context: assistantContext, assemblies: currentAssemblies, tomography: tomographySource, shareTomography: sharePlanningTomography, tomographyBasis,
+    restoration: {
+      assemblies: currentAssemblies, selectedId: restorations.selectedId,
+      busy: restorations.busy || importing || aligning || planning.busy || assessing || !!pendingConcepts || sessionBusy,
+      sourceRevision: JSON.stringify([hypothesisRevision, tomographyBasis, unitsProvenance, rulerEvidence]),
+      applyEdit: async (id, edit, expectedRevision, signal) => {
+        const assembly = await restorations.edit(id, edit, { actor: 'agent', expectedRevision, signal });
+        recordCorrection('candidate', `${id}:workflow-ai-edit`); return assembly;
+      },
+    },
     onComplete: (key, result) => changeRun(run => run.id !== key ? run : journalWorkflow(run, { name: 'ai-draft-review', stage: 'review', status: 'complete', durationMs: 0, detail: `Model: ${result.model}\n${result.text}`.slice(0, 3850) + (result.text.length > 3800 ? '\n[Saved excerpt; full review was shown in this session.]' : ''), artifactIds: [] })),
     onError: (key, error) => changeRun(run => run.id !== key ? run : journalWorkflow(stageWorkflow(run, 'review', 'partial', error), { name: 'ai-draft-review', stage: 'review', status: 'partial', durationMs: 0, detail: error, artifactIds: [] })),
   });
+  const liveAiActivity = [...planning.activity, ...aiReview.activity.map(activity => ({ ...activity, id: `review:${activity.id}` }))];
+  const aiActivity = liveAiActivity.length ? liveAiActivity : currentRun?.aiActivity ?? [];
+  useEffect(() => {
+    if (!currentRun || !liveAiActivity.length) return;
+    changeRun(run => ({ ...run, aiActivity: liveAiActivity.slice(-192) }));
+  }, [planning.activity, aiReview.activity, currentRun?.id]);
 
   const toothView = useMemo(() => {
-    const source = planning.evidence?.sources.find(source => source.partId === selected);
-    const overlay = autoTeeth.overlay ?? (source ? { partId: source.partId, candidates: source.scan.candidates.map(candidate => ({ id: candidate.id, faces: candidate.faces, centroid: candidate.centroid })), selectedCandidate: null } : null);
-    return { ...tooth.view, labels: step > 0 ? effectiveCase.labels : tooth.view.labels, planningSites: step > 0 ? proposedSites : [], focusedPlanningSiteId: focusedSiteId, autoOverlay: step === 0 ? null : overlay, ...(importing || aligning || autoTeeth.busy || planning.busy ? { tool: 'inspect' as const, editablePartIds: [] } : {}) };
-  }, [tooth.view, effectiveCase, proposedSites, focusedSiteId, autoTeeth.overlay, planning.evidence, selected, step, importing, aligning, autoTeeth.busy, planning.busy]);
+    const source = preparedCase?.scans.find(source => source.partId === selected) ?? planning.evidence?.sources.find(source => source.partId === selected);
+    const focusedRegion = focusedCaseRegion?.partId === selected && focusedCaseRegion.revision === planning.evidence?.revision ? focusedCaseRegion.candidateId : null;
+    const overlay = autoTeeth.overlay && focusedRegion === null ? { ...autoTeeth.overlay, candidates: autoTeeth.overlay.candidates.map(candidate => ({ ...candidate,
+      displayIdentity: mappingDisplayIdentity(autoTeeth.proposal?.partId === autoTeeth.overlay?.partId ? autoTeeth.proposal?.mappings.find(mapping => mapping.candidateId === candidate.id) : undefined),
+    })) } : source ? { partId: source.partId, candidates: source.scan.candidates.map(candidate => {
+      const identity = identities.find(identity => identity.partId === source.partId && identity.candidateId === candidate.id);
+      const displayIdentity: ToothDisplayIdentity | undefined = identity ? { fdi: identity.fdi, status: identity.needsReview ? 'uncertain' : identity.source === 'reviewed' ? 'reviewed-mapping' : 'draft' } : undefined;
+      return { id: candidate.id, faces: candidate.faces, centroid: candidate.centroid, displayIdentity };
+    }), selectedCandidate: focusedRegion } : null;
+    return { ...tooth.view, recordedLabels: tooth.data.labels, labels: step > 0 ? effectiveCase.labels : tooth.view.labels, planningSites: step > 0 ? proposedSites : [], focusedPlanningSiteId: focusedSiteId, autoOverlay: step === 0 ? null : overlay, ...(importing || aligning || autoTeeth.busy || planning.busy ? { tool: 'inspect' as const, editablePartIds: [] } : {}) };
+  }, [tooth.view, tooth.data.labels, effectiveCase, identities, proposedSites, focusedSiteId, focusedCaseRegion, preparedCase, autoTeeth.overlay, autoTeeth.proposal, planning.evidence, selected, step, importing, aligning, autoTeeth.busy, planning.busy]);
   useEffect(() => {
     if (preparedResult.current !== planning.result) { setDraft(null); setPendingConcepts(null); preparedResult.current = null; }
     if (!planning.result) setAcceptedActions([]);
@@ -289,10 +336,10 @@ export function App() {
     if (!pendingConcepts || importing || aligning || tooth.busy || restorations.busy) return;
     setPendingConcepts(null);
     if (pendingConcepts.parts !== parts || pendingConcepts.revision !== planning.evidence?.revision) return;
-    setProgress({ stage: 'Generating anatomy and fitting current surfaces', completed: 3, total: 5 });
+    setProgress({ stage: pendingConcepts.aiDesigns ? 'Constructing the AI design and measuring current surfaces' : 'Generating anatomy and fitting current surfaces', completed: 3, total: 5 });
     const token = workflowToken.current;
-    changeRun(run => stageWorkflow(run, 'anatomy', 'running', `${pendingConcepts.fdis.length} sites; bounded local construction, fitting and selection.`));
-    void restorations.create(pendingConcepts.fdis, effectiveCase, planning.evidence.sources, pendingConcepts.proposals, pendingConcepts.sites).then(outcome => { if (token !== workflowToken.current) return; finishWorkflow(outcome); });
+    changeRun(run => stageWorkflow(run, 'anatomy', 'running', `${pendingConcepts.sites.length || pendingConcepts.fdis.length} sites; ${pendingConcepts.aiDesigns ? 'AI-selected designs; exact local construction and measurement.' : 'bounded local construction, fitting and selection.'}`));
+    void restorations.create(pendingConcepts.fdis, effectiveCase, preparedCase?.scans ?? planning.evidence.sources, pendingConcepts.proposals, pendingConcepts.sites, pendingConcepts.aiDesigns).then(outcome => { if (token !== workflowToken.current) return; finishWorkflow(outcome); });
   }, [pendingConcepts, parts, planning.evidence, importing, aligning, tooth.busy, restorations.busy, effectiveCase, proposedSites]);
   // One explicit start carries the case through all supported local steps.
   // Wait for stable collision evidence before capturing a provider assessment.
@@ -390,15 +437,18 @@ export function App() {
     setProgress({ stage: 'Assessing the prepared case', completed: 1, total: 5 });
     workflowDeadline.current = setTimeout(() => cancelWorkflow('Workflow time budget reached · best completed candidates retained'), WORKFLOW_BUDGET.workflowMs);
   }
-  function finishWorkflow(outcome?: Awaited<ReturnType<typeof restorations.create>>) {
+  function finishWorkflow(outcome?: Awaited<ReturnType<typeof restorations.create>>, noConceptDetail?: string) {
     clearTimeout(workflowDeadline.current);
     setProgress({ stage: 'Draft assembled · checking surfaces; clinical review pending', completed: 4, total: 5 });
     const durationMs = workflowStart.current ? performance.now() - workflowStart.current : 0;
-    const incompleteQuality = (outcome?.assemblies ?? []).some(assembly => assembly.fit?.quality?.final.status !== 'pass');
+    const incompleteQuality = (outcome?.assemblies ?? []).some(assembly => assembly.fit?.goal
+      ? assembly.fit.goal.status !== 'satisfied' : assembly.fit?.quality?.final.status !== 'pass');
     const partial = incompleteQuality || !!outcome?.failed.length || identities.some(identity => identity.needsReview) || proposedSites.some(site => ['identity-unresolved', 'segmentation-unresolved'].includes(site.status));
     changeRun(run => {
-      let next = stageWorkflow(run, 'anatomy', !outcome || outcome.failed.length || incompleteQuality ? 'partial' : 'complete', outcome ? `${outcome.assemblies.length} generated sites; ${outcome.failed.length} could not generate. Best candidates retained; independent checks ${incompleteQuality ? 'remain unresolved' : 'passed'}.` : 'No new supported site was generated; completed work retained.', durationMs);
-      for (const assembly of outcome?.assemblies ?? []) next = journalWorkflow(next, { name: 'generate-evaluate-revise', stage: 'anatomy', status: assembly.fit?.quality?.final.status === 'pass' ? 'complete' : 'partial', durationMs: assembly.fit?.durationMs ?? 0, detail: `${assembly.spec.draftIdentity ? 'Automatic draft site' : `FDI ${assembly.spec.fdi}`}: ${assembly.fit?.before.score ?? 'unknown'} → ${assembly.fit?.after.score ?? 'unknown'} objective; ${assembly.fit?.candidates ?? 0} measured candidates; independent checks ${assembly.fit?.quality?.final.status ?? 'unknown'}; clinical fit unvalidated.`, artifactIds: [assembly.id] });
+      let next = stageWorkflow(run, 'anatomy', !outcome || outcome.failed.length || incompleteQuality ? 'partial' : 'complete', outcome ? `${outcome.assemblies.length} generated sites; ${outcome.failed.length} could not generate. Best candidates retained; independent checks ${incompleteQuality ? 'remain unresolved' : 'passed'}.` : noConceptDetail ?? 'No new supported site was generated; completed work retained.', durationMs);
+      for (const assembly of outcome?.assemblies ?? []) next = journalWorkflow(next, { name: 'generate-evaluate-revise', stage: 'anatomy', status: (assembly.fit?.goal ? assembly.fit.goal.status === 'satisfied' : assembly.fit?.quality?.final.status === 'pass') ? 'complete' : 'partial', durationMs: assembly.fit?.goal?.durationMs ?? assembly.fit?.durationMs ?? 0, detail: assembly.fit?.goal
+        ? `Mouth-fit requirements ${assembly.fit.goal.status}; ${assembly.fit.goal.attempts.length} measured attempts; required error ${assembly.fit.goal.before.requiredError.toPrecision(3)} → ${assembly.fit.goal.after.requiredError.toPrecision(3)}; ${assembly.fit.goal.termination}. Unknown clinical evidence remains unresolved.`
+        : `${assembly.spec.draftIdentity ? 'Automatic draft site' : `FDI ${assembly.spec.fdi}`}: ${assembly.fit?.before.score ?? 'unknown'} → ${assembly.fit?.after.score ?? 'unknown'} objective; ${assembly.fit?.candidates ?? 0} measured candidates; independent checks ${assembly.fit?.quality?.final.status ?? 'unknown'}; clinical fit unvalidated.`, artifactIds: [assembly.id] });
       return endWorkflow(stageWorkflow(next, 'review', 'partial', 'Draft assembled. Current surface analysis and clinical review remain separate.'), partial || !outcome ? 'partial' : 'complete');
     });
     if (durationMs) setTimings(current => [...current, { stage: 'Automatic draft preparation', durationMs }].slice(-128));
@@ -591,8 +641,8 @@ export function App() {
       identification: { numbering: 'FDI permanent', source: 'user-reviewed', teeth: tooth.data.teeth, assignedTriangles: tooth.counts, collisionScope: 'complete visible non-reference scans; tooth isolation is presentation only' },
       parts: allParts.map(part => {
         const analysis = report.parts.find(item => item.id === part.id);
-        return { id: part.id, name: part.name, fileName: part.fileName, visible: part.visible, opacity: opacityFor(part), role: part.role ?? 'model', offset: part.offset, rotation: part.rotation ?? [0, 0, 0], pose: part.pose ?? null, fileToWorkspace: partMatrix(part).toArray(), closed: part.closed, triangles: part.triangles, vertices: part.vertices, dimensions: part.dimensions, ...(analysis ? { penetratingVertices: analysis.penetratingVertices, nearbyVertices: analysis.nearbyVertices, intersectingTriangles: analysis.intersectingTriangles, maxDepth: analysis.maxDepth } : {}) };
-      }), pairs: report.pairs,
+        return { id: part.id, name: part.name, fileName: part.fileName, visible: part.visible, opacity: opacityFor(part), role: part.role ?? 'model', offset: part.offset, rotation: part.rotation ?? [0, 0, 0], pose: part.pose ?? null, fileToWorkspace: partMatrix(part).toArray(), closed: part.closed, triangles: part.triangles, vertices: part.vertices, dimensions: part.dimensions, ...(analysis ? { penetratingVertices: analysis.penetratingVertices, nearbyVertices: analysis.nearbyVertices, intersectingTriangles: analysis.intersectingTriangles, crossingTriangles: analysis.crossingTriangles, contactTriangles: analysis.contactTriangles, maxDepth: analysis.maxDepth } : {}) };
+      }), pairs: report.pairs, assemblyPairs: report.assemblyPairs,
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'platanus-collisions.json'; link.click();
@@ -616,6 +666,14 @@ export function App() {
     finally { setImporting(false); }
   }
   function openTools(targetStep = step) { setToolsOpen(true); setStep(targetStep); requestAnimationFrame(() => toolsPanel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }
+  function openRestorationEditor() {
+    if (!selectedRestoration && restorations.assemblies[0]) restorations.setSelectedId(restorations.assemblies[0].id);
+    setRestorationEditorOpen(true);
+    setFocusRestoration(true);
+    tooth.setTool('inspect'); tooth.setIsolate(false);
+    const scene = document.querySelector('.planning-scene'), bounds = scene?.getBoundingClientRect();
+    if (scene && bounds && (bounds.bottom < 80 || bounds.top > window.innerHeight - 80)) scene.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   function openRestorationAssistant() {
     setToolsOpen(true);
     requestAnimationFrame(() => {
@@ -634,9 +692,27 @@ export function App() {
   }
   function requestConcepts(result = planning.result, onlyFdi?: number) {
     if (!planning.evidence || !result || result.revision !== planning.evidence.revision) return;
-    const counts = toothCounts(effectiveCase.labels);
-    const completed = new Set(currentAssemblies.map(assembly => conceptKey(assembly.spec)));
-    const supported = automaticConceptSites({ sites: proposedSites, teeth: tooth.data, counts, parts, result, decisions: siteDecisions }).filter(site => !completed.has(conceptKey(site))).slice(0, WORKFLOW_BUDGET.sites);
+    const completed = completedConceptKeys(currentAssemblies, planning.result, result);
+    if (result.model !== 'local-geometry') {
+      if (!planning.prepared) return;
+      const fresh = projectPlanningAssessment({ prepared: planning.prepared, result, parts, reviewed: tooth.data, confidenceThreshold, identityDecisions, identityRegions, siteDecisions });
+      const plan = aiGenerationPlan({ result, prepared: fresh.prepared, sites: fresh.sites, teeth: fresh.teeth, counts: fresh.counts, parts, decisions: siteDecisions });
+      const sites = plan.sites.filter(site => !completed.has(conceptKey(site)) && (onlyFdi === undefined || site.fdi === onlyFdi)).slice(0, WORKFLOW_BUDGET.sites);
+      const aiDesigns = plan.requests.filter(request => sites.some(site => site.id === request.siteId));
+      if (plan.skipped.length) setError(plan.skipped.join(' '));
+      if (sites.length) setPendingConcepts({ fdis: [...new Set(aiDesigns.map(request => request.fdi))], proposals: [], sites, parts, revision: planning.evidence.revision, aiDesigns });
+      else {
+        const reviews = result.execution?.siteReviews ?? [];
+        const deferred = reviews.length > 0 && reviews.every(review => review.decision !== 'design');
+        if (!plan.requests.length && fresh.sites.some(site => site.kind === 'bounded' || site.kind === 'distal-extension') && !deferred)
+          setError('The AI assessment did not queue an executable restoration design. Review the recorded site decisions and local evidence, then retry planning.');
+        finishWorkflow(undefined, deferred ? `AI deferred/excluded ${reviews.length} reviewed site(s); no new concepts were constructed. ${reviews.map(review => review.rationale).join(' ')}` : undefined);
+      }
+      return;
+    }
+    if (!planning.prepared) return;
+    const fresh = projectPlanningAssessment({ prepared: planning.prepared, result, parts, reviewed: tooth.data, confidenceThreshold, identityDecisions, identityRegions, siteDecisions });
+    const supported = automaticConceptSites({ sites: fresh.sites, teeth: fresh.teeth, counts: fresh.counts, parts, result, decisions: siteDecisions }).filter(site => !completed.has(conceptKey(site))).slice(0, WORKFLOW_BUDGET.sites);
     const reviewed = Object.entries(tooth.data.teeth).filter(([, record]) => record.status === 'missing' && record.restoration === 'implant').map(([fdi]) => Number(fdi)).filter(fdi => !completed.has(conceptKey({ fdi })));
     const proposals: ProposedConceptSite[] = supported.flatMap(site => site.fdi === null ? [] : [{ fdi: site.fdi, source: Object.hasOwn(siteDecisions, site.id) ? 'dentist-draft' : 'local-geometry', evidence: site.evidence.supporting, rationale: `${site.draftIdentity?.basis ?? ''} ${result.execution?.draftRequests.find(request => request.fdi === site.fdi)?.rationale ?? result.designs.find(design => design.fdi === site.fdi)?.rationale ?? ''} ${site.frameBasis}`.trim() }]);
     const fdis = [...new Set([...reviewed, ...proposals.map(site => site.fdi)])].filter(fdi => onlyFdi === undefined || fdi === onlyFdi).slice(0, WORKFLOW_BUDGET.sites);
@@ -693,7 +769,8 @@ export function App() {
     const corrected = replaceIdentityCorrection(identityDecisions, identityRegions, key, fdi, Array.from(candidate.faces));
     setIdentityRegions(corrected.regions); setIdentityDecisions(corrected.decisions);
   }
-  function focusSite(site: SiteHypothesis) { setFocusedSiteId(site.id); setSelected(site.partId); if (site.fdi !== null) tooth.select(site.fdi); }
+  function selectTooth(fdi: number) { setFocusedSiteId(null); tooth.select(fdi); }
+  function focusSite(site: SiteHypothesis) { setFocusedSiteId(site.id); setFocusRestoration(false); if (site.fdi !== null) tooth.select(site.fdi, site.partId); else setSelected(site.partId); }
   function generateSite(fdi: number) {
     if (assessing || planning.busy || pendingConcepts || restorations.busy || importing || aligning) return;
     const assembly = restorations.assemblies.find(assembly => assembly.spec.fdi === fdi && !assembly.warnings.some(warning => warning.startsWith('STALE:')));
@@ -706,7 +783,7 @@ export function App() {
     setSessionBusy(true); setError('');
     try {
       const measuredTimings = reviewStarted.current ? [...timings, { stage: 'Review wall time until save (includes reading and idle time)', durationMs: performance.now() - reviewStarted.current }].slice(-128) : timings;
-      const session = await createPlanningSession({ parts, teeth: tooth.data, assemblies: restorations.assemblies, draft: planning.evidence ? { evidence: planning.evidence, result: planning.result, prepared: planning.prepared ? { ...planning.prepared, identities, sites: proposedSites, scans: planning.prepared.scans.map(source => ({ ...source, draftLabels: effectiveCase.labels[source.partId] ?? source.draftLabels })) } : undefined } : null, confidenceThreshold, manualMode, patientRight: planning.patientRight, model: planning.model, mmPerUnit, unitsProvenance, progress, acceptedActions,
+      const session = await createPlanningSession({ parts, teeth: tooth.data, assemblies: restorations.assemblies, draft: planning.evidence ? { evidence: planning.evidence, result: planning.result, prepared: preparedCase ? { ...preparedCase, identities, sites: proposedSites, scans: preparedCase.scans.map(source => ({ ...source, draftLabels: effectiveCase.labels[source.partId] ?? source.draftLabels })) } : undefined } : null, confidenceThreshold, manualMode, patientRight: planning.patientRight, model: planning.model, mmPerUnit, unitsProvenance, progress, acceptedActions,
         workflow: { step, selectedTooth: tooth.selectedTooth, selectedAssemblyId: restorations.selectedId, focusedSiteId, identityDecisions, identityRegions, archivedDraftDecisions, siteDecisions, collisionTolerance: tolerance, runs: workflowRuns, correctionEvents, assessments: assessmentHistory, biteReviewed, timedPreparationRevision: timedPreparation.current || undefined }, timings: measuredTimings });
       setTimings(measuredTimings); if (reviewStarted.current) reviewStarted.current = performance.now();
       const url = URL.createObjectURL(bundle ? planningExportBundle(session, restorations.assemblies) : new Blob([JSON.stringify(session)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = bundle ? 'platanus-planning.zip' : 'platanus-case.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1500);
@@ -719,6 +796,7 @@ export function App() {
       if (file.size > 96 * 1024 * 1024) throw new Error('Choose a case session smaller than 96 MiB.');
       const saved = await readPlanningSession(JSON.parse(await file.text()), parts);
       restoringSession.current = true;
+      aiReview.reset();
       // Mesh sessions do not embed CBCT data or its registration frame.
       tomographyFiles.current = null; tomography.clear(); setTomographyViews([]);
       setSceneAlignment(null); setCbctRegistrations([]);
@@ -730,7 +808,8 @@ export function App() {
       const decisions = saved.workflow?.siteDecisions ?? {};
       timedPreparation.current = saved.workflow?.timedPreparationRevision ?? (saved.draft?.prepared?.durationMs && saved.timings.some(timing => timing.stage === 'Local evidence preparation' && Math.abs(timing.durationMs - saved.draft!.prepared!.durationMs!) < 1) ? saved.draft.prepared.revision : '');
       setConfidenceThreshold(saved.confidenceThreshold); setManualMode(saved.manualMode); setMmPerUnit(saved.mmPerUnit); setUnitsProvenance(saved.unitsProvenance); setProgress(saved.progress); setTimings(saved.timings); setAcceptedActions(saved.acceptedActions); setIdentityDecisions(saved.workflow?.identityDecisions ?? {}); setIdentityRegions(saved.workflow?.identityRegions ?? {}); setArchivedDraftDecisions(saved.workflow?.archivedDraftDecisions ?? []); if (saved.workflow?.collisionTolerance !== undefined) setTolerance(saved.workflow.collisionTolerance); setSiteDecisions(decisions); setWorkflowRuns((saved.workflow?.runs ?? []).map(run => run.status === 'running' ? endWorkflow(run, 'cancelled') : run)); setCorrectionEvents(saved.workflow?.correctionEvents ?? []); setAssessmentHistory(saved.workflow?.assessments ?? []); setFocusedSiteId(saved.workflow?.focusedSiteId ?? null); setBiteReviewed(saved.workflow?.biteReviewed ?? false);
-      restorations.restore(saved.assemblies, saved.draft?.evidence.sources ?? [], saved.draft?.prepared?.sites ?? [], saved.draft ? `${saved.draft.evidence.revision}:${saved.patientRight}:${saved.mmPerUnit}:${JSON.stringify(decisions)}` : null); setStep(saved.workflow?.step ?? (saved.draft?.result ? 1 : 0)); if (saved.workflow?.selectedTooth) tooth.select(saved.workflow.selectedTooth); if (saved.workflow?.selectedAssemblyId) restorations.setSelectedId(saved.workflow.selectedAssemblyId); reviewStarted.current = performance.now();
+      designRevision.current = saved.draft?.result ? planningDesignRevision(saved.draft.result) : '';
+      restorations.restore(saved.assemblies, saved.draft?.evidence.sources ?? [], saved.draft?.prepared?.sites ?? [], saved.draft ? `${saved.draft.evidence.revision}:${saved.patientRight}:${saved.mmPerUnit}:${JSON.stringify(decisions)}:${designRevision.current}` : null); setStep(saved.workflow?.step ?? (saved.draft?.result ? 1 : 0)); if (saved.workflow?.selectedTooth) tooth.select(saved.workflow.selectedTooth); if (saved.workflow?.selectedAssemblyId) restorations.setSelectedId(saved.workflow.selectedAssemblyId); setFocusRestoration(true); reviewStarted.current = performance.now();
       if (saved.recoveryWarnings?.length) setWarnings(current => [...current, ...saved.recoveryWarnings!]);
       setTimeout(() => { restoringSession.current = false; if (saved.recoveryWarnings?.length) planning.prepare(); }, 500);
     } catch (cause) { setError(message(cause)); } finally { setSessionBusy(false); }
@@ -818,8 +897,8 @@ export function App() {
         <p className="sidebar-intro">A reusable patient case. Upper + lower + bite; mapped textures are optional.</p>
         {!parts.length ? <button className="import-zone" disabled={importing || aligning} onClick={() => input.current?.click()}><Glyph kind="file" /><strong>{importing ? 'Reading your geometry…' : 'Add your scans'}</strong><span>Choose files or drop them anywhere</span><small>STL · OBJ + MTL · PLY + JPG/PNG</small></button> : <div className="part-list">{parts.map(part => {
           const analysis = report?.parts.find(item => item.id === part.id);
-          const hit = !!analysis && (analysis.intersectingTriangles > 0 || analysis.penetratingVertices > 0);
-          return <div className={`part-row ${part.id === selected ? 'selected' : ''}`} key={part.id}>{part.role !== 'bite' && <input type="checkbox" aria-label={`Show ${part.name}`} checked={part.visible && opacityFor(part) > 0} disabled={importing} onChange={() => setOpacities(current => ({ ...current, [part.id]: opacityFor(part) > 0 ? 0 : 1 }))} />}<button className="part-select" onClick={() => { setSelected(part.id); setProbe(null); }}><span className="part-name">{part.name}</span><span className="part-meta">{part.role === 'bite' ? 'Alignment reference · hidden' : <>{roleLabels[part.role ?? 'model']} · <span className="num">{count(part.triangles)} triangles</span></>}{part.role !== 'bite' && opacityFor(part) < 1 && <span className="opacity-badge"><span className="num">{Math.round(opacityFor(part) * 100)}% opacity</span></span>}{hit && <span className="hit-dot" title="Collision detected" />}</span></button><button className="icon-button remove-part" disabled={importing} aria-label={`Remove ${part.name}`} onClick={() => { updateParts(parts.filter(item => item.id !== part.id)); setOpacities(current => { const next = { ...current }; delete next[part.id]; return next; }); clearFit(); if (selected === part.id) setSelected(null); }}><Glyph kind="close" /></button></div>;
+          const hit = !!analysis && ((analysis.crossingTriangles ?? analysis.intersectingTriangles) > 0 || analysis.penetratingVertices > 0);
+          return <div className={`part-row ${part.id === selected ? 'selected' : ''}`} key={part.id}>{part.role !== 'bite' && <input type="checkbox" aria-label={`Show ${part.name}`} checked={part.visible && opacityFor(part) > 0} disabled={importing} onChange={() => setOpacities(current => ({ ...current, [part.id]: opacityFor(part) > 0 ? 0 : 1 }))} />}<button className="part-select" onClick={() => { setSelected(part.id); setFocusRestoration(false); setProbe(null); }}><span className="part-name">{part.name}</span><span className="part-meta">{part.role === 'bite' ? 'Alignment reference · hidden' : <>{roleLabels[part.role ?? 'model']} · <span className="num">{count(part.triangles)} triangles</span></>}{part.role !== 'bite' && opacityFor(part) < 1 && <span className="opacity-badge"><span className="num">{Math.round(opacityFor(part) * 100)}% opacity</span></span>}{hit && <span className="hit-dot" title="Collision detected" />}</span></button><button className="icon-button remove-part" disabled={importing} aria-label={`Remove ${part.name}`} onClick={() => { updateParts(parts.filter(item => item.id !== part.id)); setOpacities(current => { const next = { ...current }; delete next[part.id]; return next; }); clearFit(); if (selected === part.id) setSelected(null); }}><Glyph kind="close" /></button></div>;
         })}</div>}
 
         {active && <section className="part-detail" aria-label="Selected part details">
@@ -861,7 +940,15 @@ export function App() {
             referenceOpacity={referenceOpacity} onReferenceOpacity={setReferenceOpacity}
             scanOpacity={Math.max(0, ...allParts.filter(part => part.role !== 'bite').map(opacityFor))}
             onScanOpacity={opacity => setOpacities(current => ({ ...current, ...Object.fromEntries(allParts.filter(part => part.role !== 'bite').map(part => [part.id, opacity])) }))} />}
-          <Viewport compact parts={viewportParts} referenceParts={referenceParts} framingRevision={framingRevision} onCaptureReady={captureReady} onViewerReady={viewerActionsReady} onNavigationModeChange={setNavigationMode} upAxis={upAxis} onUpAxisChange={setUpAxis} showAnnotations={showAnnotations} onShowAnnotationsChange={setShowAnnotations} expanded={viewerExpanded} onExpandedChange={setViewerExpanded} opacities={sceneOpacities} report={report} tolerance={tolerance} selected={step >= 2 ? restorations.assemblies.find(item => item.id === restorations.selectedId)?.parts.find(part => part.restoration?.component === 'crown')?.id ?? selected : selected} heatmap={heatmap} wireframe={wireframe}
+          <Viewport compact parts={viewportParts} mmPerUnit={mmPerUnit} referenceParts={referenceParts} framingRevision={framingRevision} onCaptureReady={captureReady} onViewerReady={viewerActionsReady} onNavigationModeChange={setNavigationMode} upAxis={upAxis} onUpAxisChange={setUpAxis} showAnnotations={showAnnotations} onShowAnnotationsChange={setShowAnnotations} expanded={viewerExpanded} onExpandedChange={setViewerExpanded} onMeasurement={receiveMeasurement} measurementDisabled={aperture !== 0 || sceneAperture !== 0} opacities={sceneOpacities} report={report} tolerance={tolerance} selected={focusRestoration ? selectedRestorationPart?.id ?? selected : selected} heatmap={heatmap} wireframe={wireframe}
+            floatingControls={selectedRestoration ? { partIds: selectedRestoration.parts.map(part => part.id), content: exitExpanded => <RestorationFloatingEditor
+              assembly={selectedRestoration} assemblies={restorations.assemblies} component={restorationComponent} mmPerUnit={mmPerUnit} onComponent={component => { setRestorationComponent(component); setFocusRestoration(true); }}
+              minimized={!restorationEditorOpen} onExpand={openRestorationEditor}
+              onRecheck={id => { void restorations.recheck(id).catch(() => {}); }}
+              onFit={id => { recordCorrection('candidate', `${id}:fit`); void restorations.compare(id); }}
+              busy={restorations.busy || importing || aligning || sessionBusy || planning.busy || assessing || !!pendingConcepts} error={restorations.error}
+              onSelect={id => { restorations.setSelectedId(id); setFocusRestoration(true); }} onMinimize={() => setRestorationEditorOpen(false)} onAgentEdit={() => { exitExpanded(); openRestorationAssistant(); }} onReview={() => { exitExpanded(); openTools(2); }}
+              onEdit={(id, edit) => { recordCorrection('candidate', `${id}:manual-edit`); void restorations.edit(id, edit, { actor: 'manual' }).catch(() => {}); }} /> } : undefined}
             dock={allParts.length ? <ViewerDock
               disabled={!visible.length}
               navigationMode={navigationMode}
@@ -888,28 +975,33 @@ export function App() {
               onToggleExpanded={() => setViewerExpanded(value => !value)} /> : undefined}
             toothView={toothView}
             onToothEdit={event => { if (!importing && !aligning && !autoTeeth.busy && !planning.busy) { if (event.kind === 'pick' && event.tool === 'auto') { const fdi = autoTeeth.pick(event.hit); if (fdi) tooth.select(fdi); } else { if (event.tool !== 'inspect') recordCorrection('surface', event.tool); tooth.onEdit(event); } } }} onExitToothTool={() => tooth.setTool('inspect')}
-            onImport={() => input.current?.click()} onProbe={value => { setProbe(value); setSelected(value.id); }} /><div className="case-caption">{referenceShown && tomography.surface ? <>CBCT threshold preview · {mmPerUnit ? <>scan scale <span className="num">{number(mmPerUnit)} mm/u</span> · <span className="num">{overlayRegistrations.filter(record => record.reviewed).length} visually reviewed arches</span></> : 'native DICOM millimeters'} · {tomography.volume?.complete ? 'complete source' : 'incomplete source; nonquantitative'} · </> : 'Current patient pose · distances in source file units (u) · '}{aligning ? 'Aligning arches to hidden bite references…' : biteReviewed ? 'Static bite pose reviewed' : fitSummary.length ? 'Estimated bite pose · review pending' : 'Bite alignment not verified'}</div></div><div className="planning-controls">
-          <ProcessPanel state={processState} alignmentNotice={alignmentIssue ? "Current scan pose kept. Bite refinement could not establish a better pose. Review Alignment details before interpreting contacts." : undefined} aiConfigured={planning.configured} modelLabel={planning.modelLabel} scanCount={parts.length}
+            onImport={() => input.current?.click()} onProbe={value => {
+              setProbe(value); setSelected(value.id);
+              const picked = allParts.find(part => part.id === value.id)?.restoration;
+              setFocusRestoration(!!picked);
+              if (picked) { restorations.setSelectedId(picked.assemblyId); setRestorationComponent(picked.component); setRestorationEditorOpen(true); }
+            }} /><div className="case-caption">{referenceShown && tomography.surface ? <>CBCT threshold preview · {mmPerUnit ? `scan scale ${number(mmPerUnit)} mm/u · ${overlayRegistrations.filter(record => record.reviewed).length} visually reviewed arches` : 'native DICOM millimeters'} · {tomography.volume?.complete ? 'complete source' : 'incomplete source; nonquantitative'} · </> : 'Current patient pose · distances in source file units (u) · '}{aligning ? 'Aligning arches to hidden bite references…' : biteReviewed ? 'Static bite pose reviewed' : fitSummary.length ? 'Estimated bite pose · review pending' : 'Bite alignment not verified'}</div></div><div className="planning-controls">
+          <ProcessPanel state={processState} aiActivity={aiActivity} assessment={planning.result} alignmentNotice={alignmentIssue ? "Current scan pose kept. Bite refinement could not establish a better pose. Review Alignment details before interpreting contacts." : undefined} aiConfigured={planning.configured} modelLabel={planning.modelLabel} scanCount={parts.length}
             model={planning.model} defaultModel={planning.defaultModel} modelLocked={modelLocked} onModel={selectPlanningModel}
             cbctLoaded={!!tomography.volume} cbctShared={sharePlanningTomography} onCbctShared={value => { cancelWorkflow('Paused · tomography sharing changed'); setSharePlanningTomography(value); }}
-            onStart={() => queueWorkflow()} onPause={() => cancelWorkflow()} onResume={() => queueWorkflow('resume')} onLocal={() => queueWorkflow('local')}
+            onStart={() => queueWorkflow(planning.configured === true ? 'ai' : 'local')} onPause={() => cancelWorkflow()} onResume={() => queueWorkflow('resume')} onLocal={() => queueWorkflow('local')}
             onImport={() => input.current?.click()} onReview={() => openTools(3)} onEvidence={() => openTools(0)} onSettings={() => openTools()}
             onSave={() => void saveSession()} onExport={() => void saveSession(true)} sessionBusy={sessionBusy} canPause={!importing && !aligning && !tomography.loading} review={reviewDisplay} />
-          {currentAssemblies.length > 0 && <button className="restoration-open-editor" disabled={restorations.busy || importing || aligning} onClick={() => openTools(2)}>Edit implant, pilar & crown</button>}
+          {currentAssemblies.length > 0 && <button className="restoration-open-editor" disabled={restorations.busy || importing || aligning} onClick={openRestorationEditor}>Edit implant, pilar & crown</button>}
         </div></div>
         <div className="advanced-workspace" id="advanced-tools" ref={toolsPanel} hidden={!toolsOpen}>
           <div className="advanced-heading"><div><p className="process-eyebrow">Case workspace</p><h2>Evidence & review details</h2></div><button onClick={() => setToolsOpen(false)}>Close details</button></div>
           <nav className="workflow-steps" aria-label="Case details">{['Evidence', 'Findings', 'Components', 'Review'].map((label, index) => <button key={label} aria-current={step === index ? 'step' : undefined} onClick={() => { setStep(index); tooth.setTool('inspect'); tooth.setIsolate(false); }}><span><span className="num">{index + 1}</span></span>{label}</button>)}</nav>
           <div className="display-options"><label><input type="checkbox" checked={heatmap} onChange={event => setHeatmap(event.target.checked)} />Collision colors</label><label><input type="checkbox" checked={wireframe} onChange={event => setWireframe(event.target.checked)} />Wireframe</label><button className="text-button" disabled={!Object.keys(opacities).length} onClick={() => setOpacities({})}>Reset opacity</button><button disabled={!report || busy || importing} onClick={exportReport}>Export distance report</button></div>
           <div className="advanced-planning">
-          <PlanningPanel step={step} planning={{ ...planning, setModel: selectPlanningModel }} modelLocked={modelLocked} reviewing={aiReview.status === 'running'} onRunWorkflow={() => queueWorkflow('ai', false)} parts={parts} teeth={tooth.data} counts={tooth.counts} fitReady={fitSummary.length > 0} fitSummary={fitSummary.length ? `${fitSummary.length} arches refined to bite references` : 'Original shared coordinates; alignment needs review'}
-            onPrepareDraft={prepareDraft} identities={identities} sites={proposedSites} confidenceThreshold={confidenceThreshold} onThreshold={setConfidenceThreshold} manualMode={manualMode} onManualMode={setManualMode} progress={progress} timings={timings} onStart={startWorkflow} onCancel={() => cancelWorkflow()} onResume={() => void resumeWorkflow()} workflowRuns={workflowRuns} correctionEvents={correctionEvents} biteReviewed={biteReviewed} onBiteReviewed={value => { recordCorrection('bite', String(value)); setBiteReviewed(value); }} onOrientationInput={() => recordCorrection('orientation', 'patient-right')} onFocusSite={focusSite} onGenerateSite={generateSite} onRole={assignRole} onConfirmRoles={() => { recordCorrection('role', 'confirmed-grouped-role-suggestions'); setParts(current => current.map(part => ({ ...part, roleSource: part.role && part.role !== 'model' ? 'user-reviewed' : part.roleSource }))); }} onIdentity={correctIdentity} onSite={(site, fdi) => { recordCorrection('site', site.id); setSiteDecisions(current => ({ ...current, [site.id]: fdi })); focusSite(site); tooth.select(fdi ?? tooth.selectedTooth); }} onSave={() => void saveSession()} onReopen={() => sessionInput.current?.click()} sessionBusy={sessionBusy} mmPerUnit={mmPerUnit} unitsProvenance={unitsProvenance} onUnits={(value, provenance) => { recordCorrection('calibration', provenance); setCbctScale(value); setUnitsProvenance(provenance); }} siteReadiness={restorations.siteReadiness} generationError={restorations.error}
+          <PlanningPanel step={step} aiActivity={aiActivity} assessment={planning.result} planning={{ ...planning, prepared: preparedCase, setModel: selectPlanningModel }} modelLocked={modelLocked} reviewing={aiReview.status === 'running'} onRunWorkflow={() => queueWorkflow(planning.configured === true ? 'ai' : 'local', false)} parts={parts} teeth={tooth.data} counts={tooth.counts} fitReady={fitSummary.length > 0} fitSummary={fitSummary.length ? `${fitSummary.length} arches refined to bite references` : 'Original shared coordinates; alignment needs review'}
+            onPrepareDraft={prepareDraft} identities={identities} sites={proposedSites} confidenceThreshold={confidenceThreshold} onThreshold={setConfidenceThreshold} manualMode={manualMode} onManualMode={setManualMode} progress={progress} timings={timings} onStart={startWorkflow} onCancel={() => cancelWorkflow()} onResume={() => void resumeWorkflow()} workflowRuns={workflowRuns} correctionEvents={correctionEvents} biteReviewed={biteReviewed} onBiteReviewed={value => { recordCorrection('bite', String(value)); setBiteReviewed(value); }} onOrientationInput={() => recordCorrection('orientation', 'patient-right')} onFocusSite={focusSite} onGenerateSite={generateSite} onRole={assignRole} onConfirmRoles={() => { recordCorrection('role', 'confirmed-grouped-role-suggestions'); setParts(current => current.map(part => ({ ...part, roleSource: part.role && part.role !== 'model' ? 'user-reviewed' : part.roleSource }))); }} onIdentity={correctIdentity} onSite={(site, fdi) => { recordCorrection('site', site.id); setSiteDecisions(current => ({ ...current, [site.id]: fdi })); focusSite(site); tooth.select(fdi ?? tooth.selectedTooth); }} onSave={() => void saveSession()} onReopen={() => sessionInput.current?.click()} sessionBusy={sessionBusy} mmPerUnit={mmPerUnit} unitsProvenance={unitsProvenance} onUnits={(value, provenance) => { recordCorrection('calibration', provenance); setCbctScale(value); setUnitsProvenance(value === null ? provenance : `Recorded calibration: ${provenance}`); }} siteReadiness={restorations.siteReadiness} generationError={restorations.error}
             draftSummary={currentAssemblies.length ? `${currentAssemblies.length} draft concept${currentAssemblies.length === 1 ? '' : 's'} generated automatically. Tooth identity corrections are optional.` : draft ? `${draft.regions.length} eligible identity proposals prepared · ${draft.proposedSites.length} missing-site hypotheses · ${draft.skipped.length} identity proposals left unresolved.` : undefined}
-            collisionSummary={busy ? 'Updating current-pose surface measurements…' : report ? `${report.pairs.length} surface pairs · ${report.pairs.reduce((sum, pair) => sum + pair.intersectingTriangles, 0)} crossing triangle counts · ${report.pairs.reduce((sum, pair) => sum + pair.penetratingVertices, 0)} inside vertex samples · near-surface threshold ${number(tolerance)} file units. Whole-surface aggregates; samples are not contact area or tooth-level clearance.` : 'Current-pose surface measurements are not available yet.'}
-            onStep={setStep} onApplyIdentities={applyCaseIdentities} onSelectTooth={tooth.select} onConfirmMissing={fdi => { recordCorrection('chart', String(fdi)); tooth.recordFor(fdi, { status: 'missing', restoration: 'implant' }); }}
+            collisionSummary={busy ? 'Updating current-pose surface measurements…' : report ? `${report.pairs.length} surface pairs · ${report.pairs.reduce((sum, pair) => sum + (pair.crossingTriangles ?? pair.intersectingTriangles), 0)} crossing triangle counts · ${report.pairs.reduce((sum, pair) => sum + pair.penetratingVertices, 0)} inside vertex samples · near-surface threshold ${number(tolerance)} file units. Whole-surface aggregates; samples are not contact area or tooth-level clearance.` : 'Current-pose surface measurements are not available yet.'}
+            onStep={setStep} onApplyIdentities={applyCaseIdentities} onSelectTooth={selectTooth} onConfirmMissing={fdi => { recordCorrection('chart', String(fdi)); tooth.recordFor(fdi, { status: 'missing', restoration: 'implant' }); }}
             acceptedActions={acceptedActions} onConfirmAction={(id, value) => { setAcceptedActions(current => value ? [...new Set([...current, id])] : current.filter(item => item !== id)); changeRun(run => journalWorkflow(run, { name: 'review-action', stage: 'review', status: 'complete', durationMs: 0, detail: JSON.stringify({ included: value, assessmentRevision: planning.result?.revision, model: planning.result?.model, action: planning.result?.actions.find(action => action.id === id) }), artifactIds: [id] })); }}
             onGenerate={generateConcepts} generating={restorations.busy || !!pendingConcepts} assembliesCount={restorations.assemblies.length} onExport={() => void saveSession(true)} onCorrections={openCorrections} />
-          {step === 2 && <RestorationPanel assemblies={restorations.assemblies} selectedId={restorations.selectedId} busy={restorations.busy} error={restorations.error} onSelect={restorations.setSelectedId} onUpdate={(id, parameters) => { recordCorrection('candidate', id); void restorations.update(id, parameters); }} onEdit={(id, edit) => { recordCorrection('candidate', `${id}:manual-edit`); void restorations.edit(id, edit, { actor: 'manual' }).catch(() => {}); }} onAgentEdit={openRestorationAssistant} onPlacementFeedback={(id, feedback) => { recordCorrection('candidate', `${id}:case-feedback`); void restorations.setPlacementFeedback(id, feedback).catch(() => {}); }} onCompare={(id, candidate, version) => { recordCorrection('candidate', `${id}:${version === undefined ? candidate ?? 'retry' : `edit-${version}`}`); void restorations.compare(id, candidate, version); }} onRebuild={id => { recordCorrection('candidate', `${id}:rebuild`); void restorations.rebuild(id); }} onRemove={restorations.remove} onTogglePart={restorations.togglePart} onExportPart={restorations.exportPart} />}
+          {step === 2 && <RestorationPanel onFloatingEdit={openRestorationEditor} mmPerUnit={mmPerUnit} assemblies={restorations.assemblies} selectedId={restorations.selectedId} busy={restorations.busy} error={restorations.error} onSelect={id => { restorations.setSelectedId(id); setFocusRestoration(true); }} onUpdate={(id, parameters) => { recordCorrection('candidate', id); void restorations.update(id, parameters); }} onEdit={(id, edit) => { recordCorrection('candidate', `${id}:manual-edit`); void restorations.edit(id, edit, { actor: 'manual' }).catch(() => {}); }} onAgentEdit={openRestorationAssistant} onPlacementFeedback={(id, feedback) => { recordCorrection('candidate', `${id}:case-feedback`); void restorations.setPlacementFeedback(id, feedback).catch(() => {}); }} onCompare={(id, candidate, version) => { recordCorrection('candidate', `${id}:${version === undefined ? candidate ?? 'retry' : `edit-${version}`}`); void restorations.compare(id, candidate, version); }} onRebuild={id => { recordCorrection('candidate', `${id}:rebuild`); void restorations.rebuild(id); }} onRemove={restorations.remove} onTogglePart={restorations.togglePart} onExportPart={restorations.exportPart} />}
           </div>
         <div ref={tomographyPanel} className="tomography-workspace" hidden={!tomographyOpen}><div className="advanced-heading"><h2>CBCT evidence</h2><button onClick={() => setTomographyOpen(false)}>Close CBCT</button></div><TomographyPanel
           volume={tomography.volume} parts={allParts} mmPerUnit={mmPerUnit} onMmPerUnit={setCbctScale} alignmentBusy={cbctAlignment.busy}
@@ -929,11 +1021,19 @@ export function App() {
           editable={tooth.editable} enabled={tooth.enabled} tool={tooth.tool} brushRadius={tooth.brushRadius} isolate={tooth.isolate}
           busy={tooth.busy || importing || aligning || autoTeeth.busy} processing={tooth.busy} error={tooth.error} notice={tooth.notice}
           boundaryCount={tooth.boundaryCount} hasSeed={tooth.hasSeed} draftCount={tooth.draftCount} canUndo={tooth.canUndo} canRedo={tooth.canRedo}
-          onSelect={code => { tooth.select(code); const mapping = autoTeeth.proposal?.mappings.find(mapping => mapping.fdi === code); if (mapping) autoTeeth.selectCandidate(mapping.candidateId); }} onRecord={patch => { recordCorrection('chart', String(tooth.selectedTooth)); tooth.record(patch); }} onEnabled={tooth.setEnabled} onTool={tooth.setTool} onBrushRadius={tooth.setRadius} onIsolate={tooth.setIsolate}
+          onSelect={code => { selectTooth(code); const mapping = autoTeeth.proposal?.mappings.find(mapping => mapping.fdi === code); if (mapping) autoTeeth.selectCandidate(mapping.candidateId); }} onRecord={patch => { recordCorrection('chart', String(tooth.selectedTooth)); tooth.record(patch); }} onEnabled={tooth.setEnabled} onTool={tooth.setTool} onBrushRadius={tooth.setRadius} onIsolate={tooth.setIsolate}
           onPreview={tooth.preview} onConfirm={tooth.confirm} onClearDraft={tooth.clearDraft} onRemoveBoundaryPoint={tooth.removeBoundaryPoint}
           onClearTooth={tooth.clearTooth} onClearSite={tooth.clearSite} onUndo={tooth.undo} onRedo={tooth.redo} onCancel={tooth.cancel}
           onSave={() => void tooth.save()} onLoad={() => identificationInput.current?.click()}
           autoPanel={<AutoTeethPanel activePartName={active?.name ?? null} activePartRole={active?.role ?? null} selectedTooth={tooth.selectedTooth}
+            caseRegionSettings={planning.result?.revision === planning.evidence?.revision && preparedCase?.revision === planning.evidence?.revision ? planning.result?.execution?.regionReviews?.filter(review => review.sourceId === `scan-${parts.findIndex(part => part.id === active?.id) + 1}`) : []}
+            onReviewCaseRegions={() => { setManualMode(true); queueWorkflow('ai', false); }}
+            onInspectCaseRegion={candidateId => {
+              if (!active || !planning.evidence || !preparedCase?.scans.find(source => source.partId === active.id)?.scan.candidates.some(candidate => candidate.id === candidateId)) return;
+              setFocusedCaseRegion({ partId: active.id, candidateId, revision: planning.evidence.revision }); setFocusedSiteId(null);
+              setStep(1); tooth.setTool('inspect'); tooth.setIsolate(false);
+              requestAnimationFrame(() => document.querySelector('.planning-scene')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+            }}
             autoRun={autoTeeth.autoRun} settings={autoTeeth.settings} proposal={autoTeeth.proposal} busy={autoTeeth.busy || tooth.busy || importing || aligning} processing={autoTeeth.busy}
             stage={autoTeeth.stage || (importing ? 'Reading scans…' : aligning ? 'Refining bite…' : tooth.busy ? 'Processing identification…' : '')}
             configured={autoTeeth.configured} model={autoTeeth.model} defaultModel={autoTeeth.defaultModel} onModel={autoTeeth.setModel} patientRight={autoTeeth.patientRight} error={autoTeeth.error} notice={autoTeeth.notice}
@@ -957,16 +1057,17 @@ export function App() {
         </details>}
 
         <details className="inspection-details" open={step === 3}><summary>Surface relationships & inspection</summary><section className="results" aria-label="Collision results" aria-busy={busy}>
-          <div className="results-heading"><div><h2>Contacts & intersections</h2><p role="status">{busy ? 'Checking triangle surfaces and vertex distances…' : compared.length < 2 ? 'Show at least two non-reference scans to compare their surfaces.' : aligning ? 'Collision analysis resumes after bite refinement.' : paused ? 'Analysis paused. Analyze parts when you’re ready.' : report ? <><span className="num">{collisions.length} intersecting {collisions.length === 1 ? 'pair' : 'pairs'}</span> · <span className="num">{number(report.durationMs)} ms</span></> : 'Analyze the visible parts to inspect their relationship.'}</p></div><button disabled={compared.length < 2 || importing || aligning} onClick={() => { if (busy) setPaused(true); else { setError(''); setPaused(false); setRun(value => value + 1); } }}>{busy ? <><span className="spinner" />Stop analysis</> : 'Analyze parts'}</button></div>
-          {busy ? <div className="results-empty"><span className="spinner" /><span>Computing locally. You can keep exploring the model.</span></div> : report && report.pairs.length ? <div className="table-scroll"><table><thead><tr><th>Part pair</th><th>Relationship</th><th>Crossing triangles</th><th>Inside samples</th><th>Max. depth</th><th>Sample gap</th></tr></thead><tbody>{report.pairs.map(pair => <tr key={`${pair.a}-${pair.b}`}><td><span>{allParts.find(part => part.id === pair.a)?.name}</span><span className="pair-second">{allParts.find(part => part.id === pair.b)?.name}</span></td><td><span className={`relationship ${pair.intersectingTriangles || pair.penetratingVertices ? 'intersects' : ''}`}>{pair.intersectingTriangles || pair.penetratingVertices ? 'Intersects / inside' : 'Nearby'}</span></td><td><span className="num">{count(pair.intersectingTriangles)}</span></td><td><span className="num">{count(pair.penetratingVertices)}</span></td><td><span className="num">{number(pair.maxDepth)} u</span></td><td><span className="num">{number(pair.minDistance)} u</span></td></tr>)}</tbody></table></div> : <div className="results-empty"><span className={`result-indicator ${report ? 'complete' : ''}`} /><span>{report ? 'No intersections or nearby vertex samples at this threshold.' : 'The relationship between your parts will appear here.'}</span></div>}
-          <div className="method-note">Collision results compare complete visible scans and concept components; tooth isolation only changes the view. {report && 'Counts include repeated triangle-corner samples. ' }Connected component joints can touch intentionally. Inside tests require closed surfaces. Crossing triangles are red; near and inside distances are sampled at vertices. A sampled gap can exceed the true surface gap. Self-intersections within one part are not tested.</div>
+          <div className="results-heading"><div><h2>Contacts & intersections</h2><p role="status">{busy ? 'Checking triangle surfaces and vertex distances…' : compared.length < 2 ? 'Show at least two non-reference scans to compare their surfaces.' : aligning ? 'Collision analysis resumes after bite refinement.' : paused ? 'Analysis paused. Analyze parts when you’re ready.' : report ? `${collisions.length} intersecting ${collisions.length === 1 ? 'pair' : 'pairs'} · ${number(report.durationMs)} ms` : 'Analyze the visible parts to inspect their relationship.'}</p></div><button disabled={compared.length < 2 || importing || aligning} onClick={() => { if (busy) setPaused(true); else { setError(''); setPaused(false); setRun(value => value + 1); } }}>{busy ? <><span className="spinner" />Stop analysis</> : 'Analyze parts'}</button></div>
+          {busy ? <div className="results-empty"><span className="spinner" /><span>Computing locally. You can keep exploring the model.</span></div> : report && report.pairs.length ? <div className="table-scroll"><table><thead><tr><th>Part pair</th><th>Relationship</th><th>Crossing triangles</th><th>Contact / ambiguous</th><th>Inside samples</th><th>Max. depth</th><th>Sample gap</th></tr></thead><tbody>{report.pairs.map(pair => <tr key={`${pair.a}-${pair.b}`}><td><span>{allParts.find(part => part.id === pair.a)?.name}</span><span className="pair-second">{allParts.find(part => part.id === pair.b)?.name}</span></td><td><span className={`relationship ${(pair.crossingTriangles ?? pair.intersectingTriangles) || pair.penetratingVertices ? 'intersects' : ''}`}>{(pair.crossingTriangles ?? pair.intersectingTriangles) || pair.penetratingVertices ? 'Crossing / inside' : pair.intersectingTriangles ? 'Contact / ambiguous' : 'Nearby'}</span></td><td>{count(pair.crossingTriangles ?? pair.intersectingTriangles)}</td><td>{count(pair.contactTriangles ?? 0)}</td><td>{count(pair.penetratingVertices)}</td><td>{number(pair.maxDepth)} u</td><td>{number(pair.minDistance)} u</td></tr>)}</tbody></table></div> : <div className="results-empty"><span className={`result-indicator ${report ? 'complete' : ''}`} /><span>{report ? 'No intersections or nearby vertex samples at this threshold.' : 'The relationship between your parts will appear here.'}</span></div>}
+          {!!report?.assemblyPairs?.length && <details><summary>Assembly interfaces · {report.assemblyPairs.length} measured pairs</summary><p>Same-assembly fixture, pilar and crown interfaces remain available here and in the report. They are excluded from the external collision colors; this does not validate their connection.</p><ul>{report.assemblyPairs.map(pair => <li key={`${pair.a}-${pair.b}`}>{allParts.find(part => part.id === pair.a)?.name} / {allParts.find(part => part.id === pair.b)?.name}: {count(pair.crossingTriangles)} crossed faces, {count(pair.contactTriangles)} contact or ambiguous faces, {count(pair.penetratingVertices)} inside samples.</li>)}</ul></details>}
+          <div className="method-note">Collision results compare complete visible scans and concept components; tooth isolation only changes the view. {report && 'Counts include repeated triangle-corner samples. ' }Internal pairs within one generated assembly are reported separately. Inside tests require closed surfaces. Observed transverse crossings and inside samples are red; contact, ambiguous touching and positive near gaps are amber. Entire flagged faces are colored, not exact contact patches. A sampled gap can exceed the true surface gap. Self-intersections within one part are not tested.</div>
         </section>
 
         </details>
         {probe && <section className="probe" aria-label="Vertex inspection"><div><strong>Vertex inspection</strong><span>{parts.find(part => part.id === probe.id)?.name}</span></div><dl><div><dt>Triangle / corner</dt><dd>{probe.face} / {probe.vertex}</dd></div><div><dt>XYZ</dt><dd>{probe.position.map(number).join(', ')} u</dd></div><div><dt>Signed sample distance</dt><dd>{probe.distance === null ? 'No comparison' : `${number(probe.distance)} u`}</dd></div><div><dt>Triangle intersects</dt><dd>{probe.intersecting ? 'Yes' : 'No'}</dd></div></dl><p className="hint">Nearest corner to your click. Negative distance means inside a closed surface. Triangle and corner indices start at 0.</p></section>}
         {!!warnings.length && <details className="import-notes"><summary>Import notes (<span className="num">{warnings.length}</span>)</summary><ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
         <details className="assistant-details"><summary>Ask about this case</summary><AssistantPanel context={assistantContext} tomography={tomographySource} restoration={{
-          assemblies: restorations.assemblies,
+          assemblies: restorations.assemblies, selectedId: restorations.selectedId,
           busy: restorations.busy || importing || aligning || planning.busy || assessing || !!pendingConcepts || sessionBusy,
           sourceRevision: JSON.stringify([tomography.volume?.id, tomography.volume?.complete, tomography.threshold, tomography.stride, tomography.surface?.threshold, tomography.surface?.stride, tomographyViews, cbctRegistrations, currentSceneAlignment?.reviewed, mmPerUnit, unitsProvenance, opacities, referenceOpacity, referenceVisible, heatmap, wireframe, step, tooth.selectedTooth, tooth.isolate]),
           applyEdit: async (id, edit, expectedRevision, signal) => {

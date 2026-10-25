@@ -66,6 +66,17 @@ test('matches the complete query at the tolerance boundary', async () => {
   assert.deepEqual(outside, complete(lifted(tolerance * 4), target));
 });
 
+test('extreme source/target scale disparity cannot certify a false zero crossing audit', async () => {
+  // Both triangle interiors contain the origin. Source-origin subtraction in
+  // SAT loses the tiny target edges; the reference query shares this defect.
+  const huge = transform([-8,-4,-4, 8,-4,-3, 0,8,7], 2 ** 51);
+  const local = Float32Array.of(-1,-1,0, 1,-1,0, 0,1,0);
+  for (const [source, target] of [[huge, local], [local, huge]]) {
+    const measured = await verifyFitIntersections(source, target);
+    assert.ok(measured && (!measured.intersectionComplete || measured.intersectingTriangles > 0));
+  }
+});
+
 test('matches the complete query on random scaled and translated soups without mutating inputs', async () => {
   for (const seed of [1, 2, 3, 4, 5, 6]) {
     const next = random(seed), scale = [1e-6, 1, 1e6][seed % 3], offset = [seed * 101, -seed * 7, seed * 33];
@@ -159,4 +170,41 @@ test('sampled query tolerance floor is validated and only ever widens the tolera
   assert.equal(createFitIntersectionQuery(target, 1, () => {}, base / 2).test(target).intersectionTolerance, base);
   assert.equal(createFitIntersectionQuery(target, 1, () => {}, 1e-3).test(target).intersectionTolerance, 1e-3);
   for (const bad of [-1, NaN, Infinity]) assert.throws(() => createFitIntersectionQuery(target, 1, () => {}, bad), /minimum tolerance/);
+});
+
+test('optional verification tolerance floors all screening and SAT while default and zero preserve the original audit', async () => {
+  const target = Float32Array.of(-1, -1, 0, 1, -1, 0, 0, 1, 0);
+  const lifted = z => Float32Array.of(-1, -1, z, 1, -1, z, 0, 1, z);
+  const floor = 2 ** -18, inside = lifted(floor / 2), outside = lifted(floor * 2);
+  for (const source of [inside, outside]) {
+    const original = complete(source, target);
+    assert.deepEqual(await verify(source, target), original);
+    assert.deepEqual(await verify(source, target, { minimumTolerance: 0 }), original);
+    const bounded = await verify(source, target, { minimumTolerance: floor });
+    assert.deepEqual(bounded, createFitIntersectionQuery(target, 1, () => {}, floor).test(source));
+    assert.equal(bounded.intersectionTolerance, floor);
+  }
+  const close = await verifyFitIntersections(inside, target, { minimumTolerance: floor });
+  assert.equal(close.verificationRetainedTriangles, 1, 'The floor reaches target broadphase, source broadphase and SAT.');
+  assert.equal(close.touchingOrAmbiguousTriangles, 2);
+  assert.equal((await verify(outside, target, { minimumTolerance: floor })).intersectingTriangles, 0);
+  const originalTolerance = complete(target, target).intersectionTolerance;
+  assert.equal((await verify(target, target, { minimumTolerance: originalTolerance / 2 })).intersectionTolerance, originalTolerance);
+  for (const minimumTolerance of [-1, NaN, Infinity, -Infinity, null, '0']) {
+    await assert.rejects(verify(inside, target, { minimumTolerance }), /minimum tolerance/);
+  }
+});
+
+test('verification uses the same tolerance floor for subset, degenerate, cancelled and no-hit paths', async () => {
+  const near = Float32Array.of(-1, -1, 0, 1, -1, 0, 0, 1, 0), far = transform(near, 1, [100, 100, 0]);
+  const target = join(near, far), source = transform(near, 1, [0, 0, 1e-5]), floor = 2e-5;
+  const result = await verifyFitIntersections(source, target, { minimumTolerance: floor });
+  assert.equal(result.verificationRetainedTriangles, 1);
+  assert.equal(result.intersectionTestedTriangles, 2);
+  assert.deepEqual(await verify(source, target, { minimumTolerance: floor }), createFitIntersectionQuery(target, 2, () => {}, floor).test(source));
+  const degenerate = await verify(source, new Float32Array(9), { minimumTolerance: floor });
+  assert.equal(degenerate.intersectionComplete, false); assert.equal(degenerate.intersectionTolerance, floor);
+  const empty = await verify(new Float32Array(), target, { minimumTolerance: floor });
+  assert.equal(empty.intersectionComplete, true); assert.equal(empty.intersectionTolerance, floor);
+  await assert.rejects(verify(source, target, { minimumTolerance: floor, check: () => { throw new Error('cancelled'); } }), /cancelled/);
 });

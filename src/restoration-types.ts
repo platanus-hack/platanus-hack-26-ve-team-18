@@ -2,6 +2,9 @@ import type { ModelPart, Vec3 } from './models';
 import type { SurfaceAnchor } from './tooth-types';
 import type { CrownShape } from './crown-anatomy';
 import type { RestorationQualityContext, RestorationQualityReport } from './restoration-quality';
+import type { RestorationRelationshipsReport } from './restoration-relationships';
+import type { RestorationGoalReport } from './restoration-goals';
+import type { AbutmentGingivaReport, FixtureGingivaReport } from './restoration-gingiva';
 export type RestorationComponentKind = 'fixture' | 'abutment' | 'crown';
 export interface RestorationParameters {
   fixture: { radius: number; length: number; depth: number; taper: number };
@@ -10,6 +13,8 @@ export interface RestorationParameters {
 }
 export interface RestorationSpec {
   version: 'implant-assembly/v1'; fdi: number; parentPartId: string;
+  /** Host-owned construction profile. Absent preserves exact legacy component geometry. */
+  componentDesign?: 'nested-support/v1';
   /** fdi selects shape only for this site; it is not an anatomical tooth assignment. */
   draftIdentity?: { siteId: string; templateFdi: number; alternatives: number[]; basis: string };
   frame: { origin: Vec3; u: Vec3; v: Vec3; up: Vec3 };
@@ -30,11 +35,13 @@ export interface RestorationSpec {
   provenance: 'hypothesized' | 'clinician-entered'; units: 'file units (u)'; source: string;
   /** Snapshot dependencies for localization, including competing source imports. Not clinical evidence. */
   siteEvidence?: {
-    method: 'reviewed-surface' | 'bounded-gap'; partIds: string[]; fdis: number[]; surface: SurfaceAnchor;
+    method: 'reviewed-surface' | 'bounded-gap' | 'distal-extension'; partIds: string[]; fdis: number[]; surface: SurfaceAnchor;
     bounds?: [number, number]; slot?: { index: number; count: number };
   };
 }
 export interface RestorationMesh {
+  /** Constructed crown-body face prefix; collar faces follow. Not inferred from coordinates. */
+  crownBodyTriangles?: number;
   component: RestorationComponentKind; positions: Float32Array; normals: Float32Array;
   triangles: number; vertices: number; closed: boolean; dimensions: Vec3;
 }
@@ -61,6 +68,10 @@ export interface RestorationFitSurface {
   weight?: number;
 }
 export interface RestorationFitOptions {
+  /** Explicit gum-audit scope; legacy callers retain combined evidence. */
+  tissueSource?: 'crown' | 'crown-and-abutment';
+  /** Exact-edit audits screen full supplied targets before comparing revisions. */
+  verifyBaselineIntersections?: boolean;
   maxCandidates?: number;
   maxDurationMs?: number;
   samplesPerSurface?: number;
@@ -68,11 +79,15 @@ export interface RestorationFitOptions {
   maxIntersectionTriangles?: number;
 }
 export interface RestorationFitInput {
+  goalContract?: RestorationGoalReport;
   spec: RestorationSpec;
   surfaces: RestorationFitSurface[];
   options?: RestorationFitOptions;
 }
 export interface RestorationSurfaceFitMeasurement {
+  sourceComponents?: RestorationComponentKind[];
+  /** Constructed emergence collar is measured separately against visible gum. */
+  sourceRegion?: 'crown-body';
   id: string;
   role: RestorationFitSurface['role'];
   side?: RestorationFitSurface['side'];
@@ -147,6 +162,11 @@ export interface RestorationFitReport {
   durationMs: number;
   units: 'file units (u)';
   quality?: { initial: RestorationQualityReport; final: RestorationQualityReport; rounds: number; stopReason: 'checks-passed' | 'budget' | 'no-admissible-revision' | 'measurement-only' };
+  /** Separate bounded audit of the selected meshes, never a clinical clearance verdict. */
+  relationships?: RestorationRelationshipsReport;
+  goal?: RestorationGoalReport;
+  gingiva?: FixtureGingivaReport;
+  abutmentGingiva?: AbutmentGingivaReport;
   /** Original anatomy and at most one bounded local occlusal revision. */
   anatomyCandidates?: CrownShape[];
   referencePlanes: RestorationReferencePlanes;
@@ -168,9 +188,10 @@ export interface RestorationFitResult {
 }
 export type RestorationFitWorkerRequest =
   | { type: 'fit'; id: number; input: RestorationFitInput }
-  | { type: 'prepare-fit'; id: number; spec: RestorationSpec; parts: ModelPart[]; teeth: import('./tooth-types').ToothCase; scans: import('./case-preparation-types').PreparedCaseSource[]; site?: import('./missing-sites').SiteHypothesis; options?: RestorationFitOptions }
+  | { type: 'prepare-fit'; id: number; spec: RestorationSpec; parts: ModelPart[]; teeth: import('./tooth-types').ToothCase; scans: import('./case-preparation-types').PreparedCaseSource[]; site?: import('./missing-sites').SiteHypothesis; options?: RestorationFitOptions; goalContract?: RestorationGoalReport; generationDesign?: import('./restoration-generation').RestorationGenerationDesign }
   | { type: 'cancel'; id: number };
 export type RestorationFitWorkerResponse =
+  | { type: 'targets'; id: number; targetIds: string[] }
   | { type: 'progress'; id: number; phase: 'creating' | 'fitting'; fdi: number }
   | { type: 'result'; id: number; result: RestorationFitResult }
   | { type: 'error'; id: number; error: string }

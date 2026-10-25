@@ -1,21 +1,57 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+function trackDemoRequests(page: Page) {
+  const requests: string[] = [];
+  page.on('request', request => {
+    if (request.url().includes('/patient-demo/')) requests.push(request.url());
+  });
+  return requests;
+}
+
+async function expectNoDemoData(page: Page) {
+  await expect(page.locator('.patient-photos img')).toHaveCount(0);
+  await expect(page.locator('img[src*="/patient-demo/"]')).toHaveCount(0);
+  await expect(page.getByText('Demostración · datos de ejemplo', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Diagnóstico Oclusal & Escaneo 3D', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Evaluación Periodontal & Estética', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Protocolo Preventivo & Mantenimiento', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Métricas de tu caso:|78\.4\s*mm|34\.2\s*mm/)).toHaveCount(0);
+  await expect(page.getByText(/Ambas arcadas \(superior e inferior\) presentan adecuada alineación/)).toHaveCount(0);
+  await expect(page.getByText(/Pieza dental natural en posición anatómica armónica/)).toHaveCount(0);
+  await expect(page.locator('.tooth-btn.status-present')).toHaveCount(0);
+}
 
 test.describe('Patient Consultation View', () => {
-  test('direct navigation via #patient hash renders patient medical sheet with pre-loaded demo', async ({ page }) => {
+  test('direct navigation via #patient starts empty without requesting demo assets', async ({ page }) => {
+    const demoRequests = trackDemoRequests(page);
     await page.goto('/#patient');
 
-    // Verify patient medical sheet is displayed immediately
     await expect(page.locator('.patient-shell')).toBeVisible();
-    await expect(page.locator('.patient-header h1')).toContainText('Informe para Sofia M.');
+    await expect(page.locator('.patient-header h1')).toHaveText('Informe para Paciente');
+    await expect(page.getByText('Sin escaneos importados')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cargar demostración', exact: true })).toBeVisible();
     await expect(page.locator('.patient-viewport-box')).toBeVisible();
     await expect(page.locator('.odontogram-container')).toBeVisible();
 
-    // Verify photos card is rendered
-    await expect(page.locator('.patient-photos img')).toHaveCount(3);
+    await expectNoDemoData(page);
+    expect(demoRequests).toEqual([]);
   });
 
   test('odontogram renders all 32 FDI teeth and selecting updates consultation details', async ({ page }) => {
+    const demoRequests = trackDemoRequests(page);
     await page.goto('/#patient');
+    await expect(page.locator('.patient-header h1')).toHaveText('Informe para Paciente');
+    expect(demoRequests).toEqual([]);
+    await page.getByRole('button', { name: 'Cargar demostración', exact: true }).click();
+    await expect(page.getByText('Demostración · datos de ejemplo', { exact: true })).toBeVisible();
+    await expect(page.locator('.patient-header h1')).toHaveText('Informe para Sofia M.');
+    await expect(page.locator('.patient-photos img')).toHaveCount(3);
+    await expect.poll(() => demoRequests.map(url => new URL(url).pathname)).toEqual(expect.arrayContaining([
+      '/patient-demo/upper.ply',
+      '/patient-demo/upper.jpg',
+      '/patient-demo/lower.ply',
+      '/patient-demo/lower.jpg',
+    ]));
 
     // Check odontogram rows (upper and lower)
     const upperRow = page.locator('.arch-row.row-upper');
@@ -45,8 +81,33 @@ test.describe('Patient Consultation View', () => {
     await expect(title).toContainText('Primer Molar');
   });
 
-  test('layer toggles allow switching visibility of dental arches', async ({ page }) => {
-    await page.goto('/#patient');
+  test('layer toggles allow switching imported scan visibility without demo data', async ({ page }) => {
+    const demoRequests = trackDemoRequests(page);
+    await page.goto('/');
+    await page.getByLabel('Import 3D files').setInputFiles({
+      name: 'local-scan.obj',
+      mimeType: 'text/plain',
+      buffer: Buffer.from([
+        'o local-scan',
+        'v 0 0 0',
+        'v 10 0 0',
+        'v 0 10 0',
+        'v 0 0 10',
+        'f 1 3 2',
+        'f 1 2 4',
+        'f 2 3 4',
+        'f 3 1 4',
+      ].join('\n')),
+    });
+    await expect(page.locator('.part-name')).toHaveText('local-scan');
+
+    // Keep the locally imported case in memory when entering patient view.
+    await page.evaluate(() => { window.location.hash = 'patient'; });
+    await expect(page.locator('.patient-header h1')).toHaveText('Informe para Paciente');
+    await expect(page.getByRole('heading', { name: /Escaneos importados/ })).toBeVisible();
+    await expect(page.getByText('Sin escaneos importados')).toHaveCount(0);
+    await expect(page.locator('.patient-viewport-box canvas')).toBeVisible();
+    await expectNoDemoData(page);
 
     const archToggle = page.locator('label:has-text("Tus dientes") input[type="checkbox"]');
     await expect(archToggle).toBeChecked();
@@ -58,6 +119,7 @@ test.describe('Patient Consultation View', () => {
     // Toggle back on
     await archToggle.check();
     await expect(archToggle).toBeChecked();
+    expect(demoRequests).toEqual([]);
   });
 
   test('whatsapp and sharing buttons are configured', async ({ page }) => {
@@ -74,13 +136,17 @@ test.describe('Patient Consultation View', () => {
     await expect(shareBtn).toBeVisible();
   });
 
-  test('navigates to patient view using query param ?view=patient', async ({ page }) => {
+  test('query param ?view=patient starts empty without requesting demo assets', async ({ page }) => {
+    const demoRequests = trackDemoRequests(page);
     await page.goto('/?view=patient');
 
-    // Verify Patient Medical Sheet is mounted via query param
     await expect(page.locator('.patient-shell')).toBeVisible();
-    await expect(page.locator('.patient-header h1')).toContainText('Informe para Sofia M.');
+    await expect(page.locator('.patient-header h1')).toHaveText('Informe para Paciente');
+    await expect(page.getByText('Sin escaneos importados')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cargar demostración', exact: true })).toBeVisible();
     await expect(page.locator('.patient-viewport-box')).toBeVisible();
+    await expectNoDemoData(page);
+    expect(demoRequests).toEqual([]);
   });
 
   test('footer "Modo Especialista" button returns to doctor workspace', async ({ page }) => {
@@ -101,10 +167,12 @@ test.describe('Patient Consultation View', () => {
     // Set mobile viewport (iPhone 14 / modern smartphone)
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/#patient');
+    await page.getByRole('button', { name: 'Cargar demostración', exact: true }).click();
+    await expect(page.getByText('Demostración · datos de ejemplo', { exact: true })).toBeVisible();
 
     // Verify header and 3D canvas on mobile
     await expect(page.locator('.patient-shell')).toBeVisible();
-    await expect(page.locator('.patient-header h1')).toBeVisible();
+    await expect(page.locator('.patient-header h1')).toHaveText('Informe para Sofia M.');
     await expect(page.locator('.patient-viewport-box canvas')).toBeVisible();
 
     // Verify odontogram is interactive on mobile
@@ -120,5 +188,6 @@ test.describe('Patient Consultation View', () => {
 
     // Check photos card renders on mobile
     await expect(page.locator('.patient-photos')).toBeVisible();
+    await expect(page.locator('.patient-photos img')).toHaveCount(3);
   });
 });

@@ -9,6 +9,10 @@ import { partMatrix } from './pose.ts';
 import { RIGHT_TO_LEFT } from './tooth-numbering.ts';
 import { isFdiTooth, toothArch } from './teeth.ts';
 import { qualityContextFromSite, qualityNeighborFromSegment } from './restoration-quality.ts';
+import { conceptKey } from './planning-automation.ts';
+import { generatedCrownTargetId, type GeneratedCrownPart } from './restoration-fit-targets.ts';
+import { restorationGenerationDesignSchema, type RestorationGenerationDesign } from './restoration-generation.ts';
+import { restorationCrownShape, validateRestorationSpec } from './restoration-geometry.ts';
 
 /** The segmentation and dimensional measurements remain hypotheses about
  * anatomy. A named neighboring surface is not a reviewed tooth identity. */
@@ -29,8 +33,8 @@ function crownPeak(shape: CrownShape, height: number, cuspHeight: number): numbe
   let peak = 0, meanRim = 0;
   for (const rim of shape.rimZ) { peak = Math.max(peak, Math.fround(height * rim)); meanRim += rim / shape.rimZ.length; }
   const relief = (value: number, rim: number) => value + cuspHeight / height * Math.max(0, (value - rim) / Math.max(.05, 1 - rim));
-  for (let i = 0; i < shape.occlusal.length; i++) peak = Math.max(peak, Math.fround(height * Math.fround(relief(shape.occlusal[i], shape.rimZ[i % shape.rimZ.length]))));
-  return Math.max(peak, Math.fround(height * relief(shape.apex, meanRim)));
+  for (let i = 0; i < shape.occlusal.length; i++) peak = Math.max(peak, Math.fround(height * Math.fround(relief(shape.occlusal[i], shape.reliefDatum ?? shape.rimZ[i % shape.rimZ.length]))));
+  return Math.max(peak, Math.fround(height * relief(shape.apex, shape.reliefDatum ?? meanRim)));
 }
 
 /** Width is a scale parameter. Fit both signed extrema, including asymmetric
@@ -56,8 +60,9 @@ function crownSpan(shape: CrownShape, axis: (angle: number) => number): number {
  * A prototype footprint prior that stops a short gap plus a broad neighbour
  * cross-section from producing a lozenge; not a tooth-size norm or clinical target. */
 const MAX_BODY_ASPECT = { incisor: 1.2, canine: 1.25, premolar: 1.5, molar: 1.5 } as const;
-/** Geometric share of the total top given to the visible abutment; the crown
- * body takes the remainder. An illustrative ratio, not a gingival height. */
+/** Geometric share of the total top below the crown-body seating datum; the
+ * body takes the remainder. The retention post does not raise this datum.
+ * An illustrative ratio, not a gingival height. */
 const ABUTMENT_SHARE = .1;
 
 function surfaceWidth(site: SiteHypothesis): number | null {
@@ -90,13 +95,58 @@ export function specForHypothesis(site: SiteHypothesis, scans: PreparedCaseSourc
   const widthBasis = measuredWidth === null ? `Arc-span fallback (surface width unavailable): ${site.space.mesiodistal.method}` : `Surface envelope: ${site.space.proximalGap.method} Initial envelope occupancy is 98%, an editable geometric starting value, not a clinical contact target.`;
   const heightBasis = vertical === null ? 'No measured antagonist headroom; total top follows the neighbouring-height hypothesis.' : `Total top is capped by sampled local antagonist headroom${site.opposing?.poseVerified ? ' in the reviewed static pose' : ' provisionally; bite pose is unverified'}. ${site.space.vertical.method}`;
   return {
-    version: 'implant-assembly/v1', fdi: site.fdi, parentPartId: site.partId, frame: site.frame, anatomicalSigns: { mesial: site.mesialSign, buccal: site.buccalSign },
+    version: 'implant-assembly/v1', componentDesign: 'nested-support/v1', fdi: site.fdi, parentPartId: site.partId, frame: site.frame, anatomicalSigns: { mesial: site.mesialSign, buccal: site.buccalSign },
     ...(site.draftIdentity ? { draftIdentity: { ...site.draftIdentity, siteId: site.id } } : {}),
     anatomy, provenance: 'hypothesized', units: 'file units (u)',
-    source: `Scanned-space hypothesis. ${site.draftIdentity ? `${site.draftIdentity.basis} ` : ''}${site.frameBasis} Width: ${widthBasis}${depthBasis} Height: ${site.space.crownHeight.method} ${heightBasis} Actual template cusp anatomy and abutment are included; the visible abutment takes ${ABUTMENT_SHARE * 100}% of the total top and the crown body the remainder; additional cusp relief starts at zero. Generic component dimensions are illustrative ratios; fixture depth remains zero at the ridge datum, with bone-safe depth unknown; clinical fit unvalidated.`,
-    parameters: { fixture: { radius: Math.min(width, depth) * .2, length: height, depth: 0, taper: .12 }, abutment: { radius: Math.min(width, depth) * .17, height: abutmentHeight, emergenceRadius: Math.min(width, depth) * .25, angleX: 0, angleY: 0 }, crown: { width: crownWidth, depth: crownDepth, height: size * (1 - ABUTMENT_SHARE), cuspHeight: 0, rotation: 0 } },
-    siteEvidence: { method: 'bounded-gap', partIds: [...new Set([site.partId, ...scans.map(scan => scan.partId)])], fdis: site.draftIdentity ? [] : [site.fdi], surface: site.anchor, slot: { index: site.slot.index, count: site.slot.count }, bounds: site.slot.s },
+    source: `Scanned-space hypothesis. ${site.draftIdentity ? `${site.draftIdentity.basis} ` : ''}${site.frameBasis} Width: ${widthBasis}${depthBasis} Height: ${site.space.crownHeight.method} ${heightBasis} Actual template cusp anatomy is included; the crown-body seating datum takes ${ABUTMENT_SHARE * 100}% of the total top and the body takes the remainder. A derived rounded pilar retention post extends above that datum without raising the crown; its enclosure requires measurement. The emergence skirt covers the pilar to half an emergence radius below the ridge datum (a visual proportion, not measured sulcus depth); additional cusp relief starts at zero. Generic component dimensions are illustrative ratios; fixture platform starts half a fixture radius below the ridge datum as an editable visual proportion, with bone-safe depth unknown; clinical fit unvalidated.`,
+    parameters: { fixture: { radius: Math.min(width, depth) * .2, length: height, depth: Math.min(width, depth) * .1, taper: .25 }, abutment: { radius: Math.min(width, depth) * .17, height: abutmentHeight, emergenceRadius: Math.min(width, depth) * .25, angleX: 0, angleY: 0 }, crown: { width: crownWidth, depth: crownDepth, height: size * (1 - ABUTMENT_SHARE), cuspHeight: 0, rotation: 0 } },
+    siteEvidence: { method: site.kind === 'distal-extension' ? 'distal-extension' : 'bounded-gap', partIds: [...new Set([site.partId, ...scans.map(scan => scan.partId)])], fdis: site.draftIdentity ? [] : [site.fdi], surface: site.anchor, slot: { index: site.slot.index, count: site.slot.count }, bounds: site.slot.s },
   };
+}
+
+/** Local evidence supplies identity and placement; every construction value is
+ * explicitly supplied by the AI design. Missing measurements never select a
+ * geometric default or a different anatomy hypothesis on this path. */
+export function specForAIGeneration(site: SiteHypothesis, scans: PreparedCaseSource[], value: RestorationGenerationDesign, rationale: string): RestorationSpec {
+  const design = restorationGenerationDesignSchema.parse(value);
+  if (site.fdi === null || !isFdiTooth(site.fdi) || toothArch(site.fdi) !== site.arch
+    || !site.anchor || site.anchor.partId !== site.partId || !site.frame
+    || !['proposed-missing', 'dentist-confirmed-missing'].includes(site.status)) throw new Error('AI generation requires a current, localized missing-site hypothesis.');
+  if (!site.draftIdentity && toothClassOf(site.fdi) !== design.anatomy) throw new Error('AI anatomy must match the named FDI tooth class.');
+  if (typeof rationale !== 'string' || !rationale.trim() || rationale.length > 600) throw new Error('AI generation requires a bounded design rationale.');
+  const spec: RestorationSpec = {
+    version: 'implant-assembly/v1', componentDesign: 'nested-support/v1', fdi: site.fdi, parentPartId: site.partId, frame: structuredClone(site.frame),
+    anatomicalSigns: { mesial: site.mesialSign, buccal: site.buccalSign },
+    ...(site.draftIdentity ? { draftIdentity: { ...structuredClone(site.draftIdentity), siteId: site.id, templateFdi: site.fdi } } : {}),
+    anatomy: design.anatomy, parameters: design.parameters, contour: design.contour,
+    provenance: 'hypothesized', units: 'file units (u)',
+    source: `AI-directed design. Skill: skills/dental-restoration-design/SKILL.md. Anatomy source: ${design.anatomySource}. Rationale: ${rationale.trim()} ${site.draftIdentity ? `${site.draftIdentity.basis} ` : ''}${site.frameBasis} Exact requested parameters and contour; measurement only. Planning concept; clinical fit unvalidated.`,
+    siteEvidence: { method: site.kind === 'distal-extension' ? 'distal-extension' : 'bounded-gap', partIds: [...new Set([site.partId, ...scans.map(scan => scan.partId)])], fdis: site.draftIdentity ? [] : [site.fdi], surface: structuredClone(site.anchor), slot: { index: site.slot.index, count: site.slot.count }, bounds: [...site.slot.s] },
+  };
+  if (design.anatomySource === 'procedural-template') spec.crownShape = restorationCrownShape(spec);
+  validateRestorationSpec(spec);
+  return spec;
+}
+
+/** Worker-side anatomy resolution for an exact design. A requested donor must
+ * resolve from eligible local evidence; automatic donor sizing is discarded. */
+export function withAIGenerationDesign(spec: RestorationSpec, site: SiteHypothesis | undefined, scans: PreparedCaseSource[], parts: ModelPart[], value: RestorationGenerationDesign): RestorationSpec {
+  const design = restorationGenerationDesignSchema.parse(value);
+  validateRestorationSpec(spec);
+  if (!spec.draftIdentity && toothClassOf(spec.fdi) !== design.anatomy) throw new Error('AI anatomy must match the named FDI tooth class.');
+  if (spec.anatomy !== design.anatomy || JSON.stringify(spec.parameters) !== JSON.stringify(design.parameters)
+    || JSON.stringify(spec.contour) !== JSON.stringify(design.contour)) throw new Error('AI generation specification differs from the authorized design.');
+  const unresolved = { ...spec };
+  delete unresolved.crownShape;
+  if (design.anatomySource === 'procedural-template') return { ...spec, crownShape: restorationCrownShape(unresolved) };
+  const donor = withPatientDonor(unresolved, site, scans, parts);
+  if (donor.crownShape?.source.kind !== 'patient-donor') throw new Error('The AI-requested patient donor is unavailable or ineligible; no procedural fallback was generated.');
+  const crownShape = donor.crownShape;
+  // withPatientDonor documents its automatic initialization. Those numerical
+  // changes are intentionally not used for an exact AI construction.
+  crownShape.source.provenance = crownShape.source.provenance.split(' Initial MD/BL/height scales:')[0]
+    + ' AI-requested parameters, additional cusp relief and contour are preserved; automatic donor sizing was not applied.';
+  return { ...spec, crownShape, anatomicalSigns: donor.anatomicalSigns };
 }
 
 /**
@@ -196,8 +246,8 @@ function contextRadius(spec: RestorationSpec) {
   for (const r of shape.rim) radial = Math.max(radial, r);
   for (const r of shape.rimZ) { top = Math.max(top, c.height * 1.2 * r); meanRim += r / shape.rimZ.length; }
   const height = (value: number, rim: number) => c.height * 1.2 * value + c.cuspHeight * 1.15 * Math.max(0, (value - rim) / Math.max(.05, 1 - rim));
-  for (let i = 0; i < shape.occlusal.length; i++) top = Math.max(top, height(shape.occlusal[i], shape.rimZ[i % shape.rimZ.length]));
-  top = Math.max(top, height(shape.apex, meanRim));
+  for (let i = 0; i < shape.occlusal.length; i++) top = Math.max(top, height(shape.occlusal[i], shape.reliefDatum ?? shape.rimZ[i % shape.rimZ.length]));
+  top = Math.max(top, height(shape.apex, shape.reliefDatum ?? meanRim));
   const slope = (angle: number) => Math.tan(Math.min(80, Math.abs(angle) + 6) * Math.PI / 180);
   const offset = a.height * 1.18 * Math.hypot(slope(a.angleY), slope(a.angleX), 1);
   const crown = offset + Math.hypot(c.width * 1.18 * radial / 2, c.depth * 1.18 * radial / 2, top);
@@ -206,21 +256,24 @@ function contextRadius(spec: RestorationSpec) {
   return Math.max(crown, pillar) + Math.max(c.width, c.depth, c.height);
 }
 
-/** Every target is a named original-triangle subset transformed exactly once into the parent frame.
+/** Every target is a named triangle subset transformed exactly once into the parent frame.
  * Draft labels are optional hypotheses; reviewed labels and explicit erasures always win. */
 export function fittingSurfaces(spec: RestorationSpec, parts: ModelPart[], teeth: ToothCase, site?: SiteHypothesis, scans: PreparedCaseSource[] = []): RestorationFitSurface[] {
   const parent = parts.find(part => part.id === spec.parentPartId);
   if (!parent || (parent.role !== 'upper' && parent.role !== 'lower')) return [];
+  const generated = parts.filter((part): part is GeneratedCrownPart => !!generatedCrownTargetId(part)
+    && (part as GeneratedCrownPart).fitTarget.current && !part.restoration?.stale && (part as GeneratedCrownPart).fitTarget.siteKey !== conceptKey(spec)
+    && parts.some(source => !source.restoration && source.id === part.restoration?.parentPartId && (source.role === 'upper' || source.role === 'lower')));
   const available = new Set<number>();
-  if (!site) for (const part of parts.filter(part => part.role === parent.role)) {
+  if (!site || generated.length) for (const part of parts.filter(part => !part.restoration && part.role === parent.role)) {
     const reviewed = teeth.labels[part.id], draft = scans.find(source => source.partId === part.id)?.draftLabels, mask = teeth.reviewedMask?.[part.id];
     for (let face = 0; face < part.triangles; face++) {
       const label = reviewed?.[face] || (!mask?.[face] ? draft?.[face] ?? 0 : 0);
       if (isFdiTooth(label) && toothArch(label) === parent.role && label !== spec.fdi) available.add(label);
     }
   }
+  for (const neighbor of Object.values(site?.adjacent ?? {})) if (neighbor?.fdi) available.add(neighbor.fdi);
   const order = RIGHT_TO_LEFT[parent.role], position = order.indexOf(spec.fdi);
-  const fallbackFlanks = position < 0 ? [] : [order.slice(0, position).reverse().find(fdi => available.has(fdi)), order.slice(position + 1).find(fdi => available.has(fdi))];
   const inverse = partMatrix(parent).invert();
   const origin = new Vector3(...spec.frame.origin), radius = contextRadius(spec);
   const result: RestorationFitSurface[] = [];
@@ -232,6 +285,46 @@ export function fittingSurfaces(spec: RestorationSpec, parts: ModelPart[], teeth
     }
     return out;
   };
+  const localCrowns = generated.flatMap(part => {
+    const source = parts.find(source => source.id === part.restoration!.parentPartId)!;
+    // The request descriptor already carries the complete display pose. Do not
+    // multiply the source pose a second time or transform the saved vertices.
+    const transform = inverse.clone().multiply(partMatrix(part));
+    const sourceOrigin = origin.clone().applyMatrix4(transform.clone().invert()), box = new Box3(), point = new Vector3(), faces: number[] = [];
+    for (let face = 0; face < part.triangles; face++) {
+      box.makeEmpty();
+      for (let corner = 0; corner < 3; corner++) box.expandByPoint(point.fromArray(part.positions, face * 9 + corner * 3));
+      if (box.distanceToPoint(sourceOrigin) <= radius) faces.push(face);
+    }
+    const along = new Vector3(...part.fitTarget.origin).applyMatrix4(transform).sub(origin).dot(new Vector3(...spec.frame.u));
+    return faces.length ? [{ part, source, transform, faces, along }] : [];
+  });
+  const numberedCrowns = !spec.draftIdentity && localCrowns.some(({ part, source }) => part.fitTarget.fdi !== null && source.role === parent.role);
+  if (numberedCrowns) for (const { part, source } of localCrowns) if (part.fitTarget.fdi !== null && source.role === parent.role) available.add(part.fitTarget.fdi);
+  const fallbackFlanks = position < 0 ? [] : [order.slice(0, position).reverse().find(fdi => available.has(fdi)), order.slice(position + 1).find(fdi => available.has(fdi))];
+  // Unnumbered sites use the nearest local generated flank on each frame-U
+  // side. A template FDI must never supply a patient identity or anatomical side.
+  const geometricFlanks = new Map<number, typeof localCrowns[number]>();
+  for (const target of localCrowns) if (target.source.role === parent.role && Math.abs(target.along) > 1e-8) {
+    const sign = Math.sign(target.along), previous = geometricFlanks.get(sign);
+    if (!previous || Math.abs(target.along) < Math.abs(previous.along)) geometricFlanks.set(sign, target);
+  }
+  for (const target of localCrowns) {
+    const { part, source, faces, transform, along } = target, fdi = part.fitTarget.fdi;
+    const antagonist = source.role !== parent.role;
+    const numbered = !spec.draftIdentity && fdi !== null;
+    const adjacent = !antagonist && (numbered ? fallbackFlanks.includes(fdi) : geometricFlanks.get(Math.sign(along)) === target);
+    const side = adjacent && spec.anatomicalSigns ? numbered
+      ? Math.floor(fdi! / 10) !== Math.floor(spec.fdi / 10) || fdi! % 10 < spec.fdi % 10 ? 'mesial' : 'distal'
+      : along * spec.anatomicalSigns.mesial > 0 ? 'mesial' : 'distal' : undefined;
+    result.push({ id: generatedCrownTargetId(part)!, role: antagonist ? 'antagonist' : adjacent ? 'adjacent' : 'other-tooth',
+      ...(side ? { side } : {}), positions: subset(part, faces, transform),
+      targetGap: antagonist ? spec.parameters.crown.height * .025 : adjacent ? spec.parameters.crown.width * .005 : 0,
+      targetProvenance: `Generated crown concept (${fdi === null ? 'tooth identity unresolved' : `FDI ${fdi}`}); revision ${part.fitTarget.revision}. ${antagonist
+        ? 'Prototype target: 0.025 × initial crown body height in file units; static pose only, no clinical bite target supplied.'
+        : adjacent ? 'Prototype target: 0.005 × initial crown width in file units; no clinical proximal-contact target supplied.'
+          : 'No attractive contact objective; geometric crossing/clearance context only.'}` });
+  }
   for (const part of parts.filter(part => !part.restoration && (part.role === 'upper' || part.role === 'lower'))) {
     const transform = inverse.clone().multiply(partMatrix(part));
     // Test source-space face bounds against the inverse-transformed context.
@@ -276,8 +369,9 @@ export function fittingSurfaces(spec: RestorationSpec, parts: ModelPart[], teeth
       const namedSide = site?.adjacent.mesial?.partId === part.id && site.adjacent.mesial.fdi === fdi ? 'mesial'
         : site?.adjacent.distal?.partId === part.id && site.adjacent.distal.fdi === fdi ? 'distal'
           : undefined;
-      const flanking = !!namedSide || (!site && fallbackFlanks.includes(fdi));
-      const side = namedSide ?? (!site && spec.anatomicalSigns && flanking ? Math.floor(fdi / 10) !== Math.floor(spec.fdi / 10) || fdi % 10 < spec.fdi % 10 ? 'mesial' : 'distal' : undefined);
+      const flanking = (!!namedSide || (!site && fallbackFlanks.includes(fdi)))
+        && (!numberedCrowns || fallbackFlanks.includes(fdi));
+      const side = flanking ? namedSide ?? (!site && spec.anatomicalSigns ? Math.floor(fdi / 10) !== Math.floor(spec.fdi / 10) || fdi % 10 < spec.fdi % 10 ? 'mesial' : 'distal' : undefined) : undefined;
       result.push({ id: `${part.id}:FDI-${fdi}:${draftFdis.has(fdi) ? 'hypothesized-' : ''}local-triangles`, role: flanking ? 'adjacent' : 'other-tooth', ...(side ? { side } : {}), positions: subset(part, indices, transform), targetGap: flanking ? spec.parameters.crown.width * .005 : 0, targetProvenance: flanking ? 'Prototype target: 0.005 × initial crown width in file units; no clinical proximal-contact target supplied.' : 'Other scanned tooth: no attractive contact objective; geometric crossing/clearance context only.' });
     }
     for (const [toothId, region] of byRegion) result.push({ id: `${part.id}:candidate-${toothId}:local-triangles`, role: 'adjacent', side: region.side,

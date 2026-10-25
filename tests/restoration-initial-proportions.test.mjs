@@ -50,15 +50,15 @@ test('an unconstrained BL body equals 94% of the neighbouring hypothesis after t
   }
 });
 
-test('visible abutment takes a tenth of the unchanged total top; the crown body takes the rest', () => {
+test('crown collar covers the pilar while the body retains the unchanged total top', () => {
   for (const fdi of FDIS) for (const vertical of [4, null]) {
     const input = site(fdi, { vertical: vertical ?? 1 }); if (vertical === null) input.space.vertical.value = null;
     const spec = specForHypothesis(input, []), meshes = generateRestoration(spec);
     const crown = bounds(meshes.find(mesh => mesh.component === 'crown'), spec.frame);
     const top = vertical ?? input.space.crownHeight.value;
     assert.ok(crown[2][1] <= top && crown[2][1] > .999 * top, `FDI ${fdi}: total top ${crown[2][1]}`);
-    assert.ok(Math.abs(crown[2][0] / crown[2][1] - .1) < 1e-3, `FDI ${fdi}: abutment share ${crown[2][0] / crown[2][1]}`);
-    assert.ok(Math.abs(spec.parameters.abutment.height - crown[2][0]) < 1e-5);
+    assert.ok(Math.abs(crown[2][0] + spec.parameters.abutment.emergenceRadius * .5) < 1e-5, 'Crown skirt covers the sub-datum pilar collar.');
+    assert.ok(Math.abs(spec.parameters.abutment.height / crown[2][1] - .1) < 1e-3);
   }
 });
 
@@ -69,7 +69,7 @@ test('initial proportions preserve the saved frame, anchor and component axes', 
   assert.deepEqual(spec.anatomicalSigns, { mesial: 1, buccal: -1 });
   assert.equal(spec.parameters.crown.rotation, 0);
   assert.equal(spec.parameters.crown.cuspHeight, 0);
-  assert.equal(spec.parameters.fixture.depth, 0);
+  assert.equal(spec.parameters.fixture.depth, spec.parameters.fixture.radius * .5);
   assert.equal(spec.provenance, 'hypothesized');
   assert.equal(spec.units, 'file units (u)');
 });

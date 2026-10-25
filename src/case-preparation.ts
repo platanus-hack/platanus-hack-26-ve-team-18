@@ -213,7 +213,9 @@ function clearSiteIdentity(site: SiteHypothesis, reason = 'Patient right is unco
   }
   site.fdi = null; site.alternatives = []; site.confidence = 0;
   if (site.status !== 'not-scanned' && site.status !== 'segmentation-unresolved') site.status = 'identity-unresolved';
-  for (const neighbour of [site.adjacent.mesial, site.adjacent.distal, site.contralateral, ...(site.opposing?.teeth ?? [])]) if (neighbour) { neighbour.fdi = null; neighbour.confidence = 0; }
+  // Opposing identities belong to their own source: an unresolved lower site
+  // cannot erase an independently established upper crown identity.
+  for (const neighbour of [site.adjacent.mesial, site.adjacent.distal, site.contralateral]) if (neighbour) { neighbour.fdi = null; neighbour.confidence = 0; }
   site.contralateral = null;
   site.evidence.supporting = site.evidence.supporting.map(text => text.replace(/FDI \d+/g, 'unconfirmed position'));
   site.evidence.conflicting = [reason, ...site.evidence.conflicting.map(text => text.replace(/FDI \d+/g, 'unconfirmed position'))];
