@@ -13,7 +13,7 @@ const STEPS = ['Loading CBCT', 'Rendering', 'Aligning', 'Done'] as const;
 const STEP_INDEX: Record<CbctPipelineState['stage'], number> = { loading: 0, series: 0, rendering: 1, aligning: 2, done: 3, error: -1 };
 
 function Check() {
-  return <svg viewBox="0 0 14 14" width="13" height="13" aria-hidden="true"><circle cx="7" cy="7" r="6.4" fill="#e4eefc" /><path d="M4.2 7.2l2 2 3.8-4" fill="none" stroke="#285ec7" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  return <svg viewBox="0 0 14 14" width="13" height="13" aria-hidden="true" className="cbct-check-icon"><circle cx="7" cy="7" r="6.4" className="cbct-check-circle" /><path d="M4.2 7.2l2 2 3.8-4" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="cbct-check-path" /></svg>;
 }
 
 export function CbctPipelineToast({ state, stacked, onCancel, onDismiss }: Props) {

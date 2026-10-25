@@ -1283,6 +1283,166 @@
 }
 
 /* ==========================================================================
+   CBCT Pipeline Toast (Superimposition Progress)
+   ========================================================================== */
+[data-theme='dark'] .cbct-pipeline-toast {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-pipeline-heading strong {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-pipeline-step {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .cbct-pipeline-step.done {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .cbct-pipeline-step.active {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-pipeline-step .step-dot {
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .cbct-check-circle {
+  fill: var(--theme-blue-soft);
+}
+
+[data-theme='dark'] .cbct-check-path {
+  stroke: var(--theme-blue);
+}
+
+[data-theme='dark'] .cbct-pipeline-detail,
+[data-theme='dark'] .cbct-pipeline-hint {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .cbct-pipeline-error {
+  color: var(--theme-danger-text);
+}
+
+[data-theme='dark'] .cbct-pipeline-actions button {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-pipeline-actions button:hover:enabled {
+  background: var(--theme-surface-highlight);
+  border-color: var(--theme-blue);
+}
+
+[data-theme='dark'] .cbct-pipeline-actions button.primary {
+  background: var(--theme-blue);
+  border-color: var(--theme-blue);
+  color: #fff;
+}
+
+[data-theme='dark'] .cbct-pipeline-actions button.primary:hover:enabled {
+  background: var(--theme-blue-hover);
+}
+
+/* ==========================================================================
+   CBCT Overlay Controls & Inputs Dark Polish
+   ========================================================================== */
+[data-theme='dark'] .cbct-overlay-actions input[type=number] {
+  background: var(--theme-surface-elevated) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-ink) !important;
+}
+
+[data-theme='dark'] .cbct-overlay-limit {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .cbct-overlay-toggle,
+[data-theme='dark'] .cbct-overlay-opacity,
+[data-theme='dark'] .cbct-overlay-review {
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-overlay-controls button {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .cbct-overlay-controls button:hover:enabled {
+  background: var(--theme-surface-highlight);
+  border-color: var(--theme-blue);
+}
+
+/* ==========================================================================
+   Tomography, Planning & Restoration Form Inputs & Images
+   ========================================================================== */
+[data-theme='dark'] .tomography-panel input[type="number"],
+[data-theme='dark'] .tomography-panel select,
+[data-theme='dark'] .restoration-fields input,
+[data-theme='dark'] .restoration-fields select,
+[data-theme='dark'] .auto-teeth-panel input[type='number'] {
+  background: var(--theme-surface-elevated) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-ink) !important;
+}
+
+[data-theme='dark'] .tomography-import-actions button svg {
+  color: var(--theme-muted);
+}
+
+[data-theme='dark'] .tomography-import-actions button:hover:enabled svg {
+  color: var(--theme-blue);
+}
+
+[data-theme='dark'] .planning-assessment {
+  background: var(--theme-surface-elevated);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .planning-secondary {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+  color: var(--theme-ink);
+}
+
+[data-theme='dark'] .planning-panel img,
+[data-theme='dark'] .auto-teeth-panel img {
+  background: var(--theme-surface-well);
+  border-color: var(--theme-border);
+}
+
+[data-theme='dark'] .tooth-btn.selected {
+  background: var(--pat-surface-highlight, #1e2838) !important;
+  border-color: var(--pat-blue, #2c6ee8) !important;
+}
+
+[data-theme='dark'] .status-chip.planned {
+  background: var(--pat-surface-elevated, #1a2230);
+  color: var(--theme-ink);
+  border: 1px solid var(--theme-border);
+}
+
+[data-theme='dark'] .status-chip.missing {
+  background: var(--theme-warning-bg);
+  color: var(--theme-warning-text);
+  border: 1px solid var(--theme-warning-border);
+}
+
+[data-theme='dark'] .step-circle {
+  background: var(--theme-surface-highlight);
+  color: var(--theme-ink);
+  border: 1px solid var(--theme-border);
+}
+
+/* ==========================================================================
    Patient View Dark Polish
    ========================================================================== */
 [data-theme='dark'] .patient-viewport-box {

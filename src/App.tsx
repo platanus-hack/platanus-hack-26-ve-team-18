@@ -849,66 +849,6 @@ export function App() {
       <div className="main-column">
         <div className="workspace-topline"><div><p className="workspace-eyebrow">Guided planning</p><h1>{parts.length ? 'Your case, in progress.' : 'From scans to a planning draft.'}</h1><p>{parts.length ? <><span className="num">{parts.length} scan parts</span> · <span className="num">{processState.generatedCount} current concept{processState.generatedCount === 1 ? '' : 's'}</span> · distances in file units</> : 'Add patient files. Start once. Follow the process.'}</p></div><span className="case-state"><span />{processState.status === 'review' ? 'Review pending' : processState.status.replaceAll('-', ' ')}</span></div>
 
-        <div className="clinical-kpi-strip" role="region" aria-label="Clinical Metrics Overview">
-          <div className="kpi-card kpi-card--hero">
-            <div className="kpi-card-header">
-              <span className="kpi-label">Occlusal Clearance</span>
-              <span className={`kpi-pill ${collisions.length ? 'kpi-pill--warning' : 'kpi-pill--optimal'}`}>
-                {collisions.length ? '● Contact warning' : '● Target 1.5–2.0 mm'}
-              </span>
-            </div>
-            <div className="kpi-value-row">
-              <span className="kpi-value num">{parts.length < 2 ? 'Standby' : collisions.length ? `${collisions.length} Intersections` : '1.85 mm'}</span>
-              <span className="kpi-unit">{parts.length < 2 ? 'ready' : collisions.length ? 'pairs' : 'min gap'}</span>
-            </div>
-            <div className="kpi-micro-status">
-              {parts.length < 2 ? 'Import maxillary and mandibular scans to compute clearance' : collisions.length ? `${collisions.length} contact pair(s) detected in current pose` : 'Zero critical intersections · Anatomical safety clearance'}
-            </div>
-          </div>
-
-          <div className="kpi-card">
-            <div className="kpi-card-header">
-              <span className="kpi-label">Bite Alignment</span>
-              <span className={`kpi-status-dot ${fitSummary.length || biteReviewed ? 'kpi-status-dot--active' : ''}`} />
-            </div>
-            <div className="kpi-value-row">
-              <span className="kpi-value num">{fitSummary.length ? '< 0.038 mm' : biteReviewed ? 'Refined' : '0.04 mm'}</span>
-              <span className="kpi-unit">RMS</span>
-            </div>
-            <div className="kpi-micro-status">
-              {fitSummary.length ? `${fitSummary.length} arches aligned to bite references` : biteReviewed ? 'Static bite verified by clinician' : 'Static bite registration · 98.4% coverage'}
-            </div>
-          </div>
-
-          <div className="kpi-card">
-            <div className="kpi-card-header">
-              <span className="kpi-label">FDI Odontogram</span>
-              <span className={`kpi-status-dot ${identities.length > 0 ? 'kpi-status-dot--active' : ''}`} />
-            </div>
-            <div className="kpi-value-row">
-              <span className="kpi-value num">{identities.length ? `${identities.length} / 32` : `${32 - (proposedSites.length || 2)} / 32`}</span>
-              <span className="kpi-unit">FDI</span>
-            </div>
-            <div className="kpi-micro-status">
-              {proposedSites.length ? `${proposedSites.length} edentulous site(s) identified` : '2 edentulous site(s) identified (#16, #24)'}
-            </div>
-          </div>
-
-          <div className="kpi-card">
-            <div className="kpi-card-header">
-              <span className="kpi-label">CBCT Tomography</span>
-              <span className={`kpi-status-dot ${tomography.volume ? 'kpi-status-dot--active' : ''}`} />
-            </div>
-            <div className="kpi-value-row">
-              <span className="kpi-value num">{tomography.volume ? (tomography.volume.complete ? '850 HU' : 'Loading') : 'DICOM 3D'}</span>
-              <span className="kpi-unit">{tomography.volume ? 'Type II' : 'Native'}</span>
-            </div>
-            <div className="kpi-micro-status">
-              {tomography.volume ? 'Calibrated bone density · Multi-slice voxel' : 'DICOM multi-slice volume preview'}
-            </div>
-          </div>
-        </div>
-
         <div className="planning-workspace"><div className="planning-scene">
           {tomography.volume && <CbctOverlayControls hasScans={parts.some(part => part.role !== 'bite')} mmPerUnit={mmPerUnit} onScale={setCbctScale}
             busy={cbctAlignment.busy} disabled={cbctAlignmentDisabled} onAlign={() => { setCbctPipelineArmed(true); cbctAlignment.run(); }} onCancel={() => { setCbctPipelineArmed(false); cbctAlignment.cancel(); }}
